@@ -77,6 +77,7 @@ import java.util.Locale
     var attachmentAnchor by remember { mutableStateOf<Rect?>(null) }
     var confirming by remember { mutableStateOf<ChatMessage?>(null) }
     var preview by remember { mutableStateOf<String?>(null) }
+    var quoteHint by remember { mutableStateOf<String?>(null) }
     val bottom = LocalMusicComposerBottomInset.current
     val density = LocalDensity.current
     val messagesBackdrop = rememberGlassBackdrop()
@@ -96,6 +97,8 @@ import java.util.Locale
     LaunchedEffect(state.messages.lastOrNull()?.id) { if (nearBottom) list.animateScrollToItem(0) }
     LaunchedEffect(state.scrollRequest) { if (state.scrollRequest > 0) list.animateScrollToItem(0) }
     val menuItems = selected?.let { message -> buildList {
+        add(GlassMenuItem("chat_quote", "引用", MusicIcons.Comment, enabled = !state.sending,
+            onClick = { vm.quote(message) }))
         if (message.content.isNotEmpty()) add(GlassMenuItem("chat_copy", "复制文字", MusicIcons.Copy,
             onClick = { clipboard.setText(AnnotatedString(message.content)) }))
         if (message.userId == account.account?.id) add(GlassMenuItem("chat_delete", "删除消息", MusicIcons.Trash,
@@ -120,7 +123,12 @@ import java.util.Locale
                 items(state.messages.asReversed(), key = { it.id }) { message ->
                     ChatMessageRow(message, mine = message.userId == account.account?.id, vm,
                         onProfile = { id -> keyboard?.hide(); navigate("user/profile/$id") },
-                        onImage = { preview = it }, onMenu = { anchor -> selected = message; menuAnchor = anchor; menuOpen = true }, onCard = { card ->
+                        onImage = { preview = it }, onMenu = { anchor -> selected = message; menuAnchor = anchor; menuOpen = true },
+                        onQuote = { id ->
+                            val index = state.messages.asReversed().indexOfFirst { it.id == id }
+                            if (index >= 0) { quoteHint = null; scope.launch { list.animateScrollToItem(index) } }
+                            else quoteHint = "原消息不在当前记录中"
+                        }, onCard = { card ->
                             if (card.type == "song") {
                                 val song = io.github.currencortex.music.data.song.Song(card.id, card.name, card.sub, cover = card.pic)
                                 val player = vm.container.playerController
@@ -173,9 +181,23 @@ import java.util.Locale
         }
         Column(Modifier.align(Alignment.BottomCenter).elasticRootComponent().fillMaxWidth().pointerInput(Unit) { detectTapGestures {} }.onSizeChanged {
             composerHeight = with(density) { it.height.toDp() }
-        }) {
+        }.navigationBarsPadding()) {
             state.actionError?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.error) }
+            quoteHint?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 6.dp).testTag("chat_quote_hint"),
+                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+            state.quoting?.let { q ->
+                SettingsGroup(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("chat_quoting")) {
+                    SettingsPreference("引用 ${q.user?.nickname?.ifBlank { q.user.username } ?: "成员"}",
+                        quotePreview(q.content, q.image),
+                        trailing = {
+                            GlassIconButton(vm::cancelQuote, "取消引用", enabled = !state.sending,
+                                modifier = Modifier.testTag("chat_cancel_quote"), surface = false) {
+                                Icon(MusicIcons.Close, null, Modifier.size(18.dp))
+                            }
+                        })
+                }
+            }
             state.attachments.forEach { card ->
                 SettingsGroup(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("chat_attachment_${card.type}_${card.id}")) {
                     SettingsPreference(card.name, "引用 · ${card.sub.ifBlank { "音乐内容" }}",
@@ -189,7 +211,7 @@ import java.util.Locale
             }
             if (state.image.isNotEmpty()) SettingsGroup(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 SettingsPreference("待发送图片", leading = {
-                    AsyncImage(vm.repository.imageUrl(vm.container.audioSession().server, state.image), "待发送图片",
+                    AsyncImage(vm.repository.imageUrl(vm.container.projectSession().server, state.image), "待发送图片",
                         Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
                 }, trailing = {
                     GlassIconButton(vm::removeImage, "移除图片", enabled = !state.sending, surface = false) {
@@ -282,7 +304,7 @@ import java.util.Locale
 }
 
 @Composable private fun ChatMessageRow(message: ChatMessage, mine: Boolean, vm: ChatViewModel,
-    onProfile: (Long) -> Unit, onImage: (String) -> Unit, onMenu: (Rect) -> Unit,
+    onProfile: (Long) -> Unit, onImage: (String) -> Unit, onMenu: (Rect) -> Unit, onQuote: (Long) -> Unit,
     onCard: (io.github.currencortex.music.data.profile.PostAttachment) -> Unit) {
     val user = message.user ?: ProfileUser(id = message.userId, nickname = "已注销用户")
     val color = MiuixTheme.colorScheme
@@ -312,13 +334,26 @@ import java.util.Locale
                     .clip(RoundedCornerShape(if (mine) 18.dp else 6.dp, if (mine) 6.dp else 18.dp, 18.dp, 18.dp))
                     .background(if (mine) color.primary.copy(alpha = if (color.onSurface.luminance() > .5f) .16f else .09f) else color.surfaceContainer).padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    message.quote?.let { q ->
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                            .background(color.onSurface.copy(alpha = .06f))
+                            .clickable { onQuote(q.id) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .testTag("chat_quote_${message.id}"),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(q.nickname.ifBlank { "引用消息" }, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                                color = color.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(q.excerpt.ifBlank { "[消息]" }, fontSize = 11.sp,
+                                color = color.onSurface.copy(alpha = .6f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                     if (message.content.isNotEmpty()) SelectionContainer {
                         MarkdownText(message.content, Modifier.testTag("chat_body_${message.id}"), compact = true, allowImages = false)
                     }
                     if (message.streaming) Text(if (message.content.isEmpty()) "正在思考…" else "正在回答…",
                         fontSize = 11.sp, color = color.onSurfaceVariantSummary)
                     validMusicAttachments(message.atts).forEach { card -> MusicAttachmentCard(card) { onCard(card) } }
-                    vm.repository.imageUrl(vm.container.audioSession().server, message.image)?.let { url ->
+                    vm.repository.imageUrl(vm.container.projectSession().server, message.image)?.let { url ->
                         AsyncImage(url, "聊天图片", Modifier.widthIn(max = 230.dp).fillMaxWidth().heightIn(min = 120.dp, max = 240.dp)
                             .clip(RoundedCornerShape(10.dp)).clickable { onImage(url) }, contentScale = ContentScale.Fit)
                     }

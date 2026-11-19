@@ -50,7 +50,7 @@ class LibraryRepository(private val api: ApiClient, private val accountId: () ->
     suspend fun refreshStatus(ids: List<Long>) {
         if (accountId() == 0L) return
         val expected = session()
-        ids.distinct().chunked(100).forEach { chunk ->
+        ids.filter { it > 0 }.distinct().chunked(100).forEach { chunk ->
             if (expected != session()) return
             val d = api.get<SongStatusDto>("songs/status", mapOf("ids" to chunk.joinToString(",")), true)
             if (expected == session()) statuses.update { old -> old + chunk.associateWith { id ->
@@ -59,10 +59,14 @@ class LibraryRepository(private val api: ApiClient, private val accountId: () ->
         }
     }
     suspend fun toggleLike(song: Song): AppResult<Unit> = changeLike(song, null)
-    suspend fun setLiked(song: Song, liked: Boolean): AppResult<Unit> = changeLike(song, liked)
-    private suspend fun changeLike(song: Song, desired: Boolean?): AppResult<Unit> = mutationMutex.withLock {
+    suspend fun setLiked(song: Song, liked: Boolean, expectedSession: RequestSession? = null): AppResult<Unit> =
+        changeLike(song, liked, expectedSession)
+    private suspend fun changeLike(song: Song, desired: Boolean?, expectedSession: RequestSession? = null): AppResult<Unit> = mutationMutex.withLock {
+        if (song.musicSource == MusicSource.QQ_MUSIC) return@withLock AppResult.Failure(ErrorKind.NotFound,
+            message = "请在 QQ 音乐的我喜欢中管理这首歌")
         if (accountId() == 0L) return@withLock AppResult.Failure(ErrorKind.Unauthorized)
         val expected = session()
+        if (expectedSession != null && expectedSession != expected) return@withLock AppResult.Failure(ErrorKind.Unauthorized)
         // Read before toggling: a default false must not invert an existing server true.
         val loaded = appResult { refreshStatus(listOf(song.id)) }
         if (loaded is AppResult.Failure) return@withLock loaded
@@ -101,6 +105,7 @@ class LibraryRepository(private val api: ApiClient, private val accountId: () ->
         val expected = session(); editable(id, expected); api.request("DELETE", "playlists/$id", authenticated = true, expectedSession = expected); revision.update { it + 1 }
     }
     suspend fun add(id: Long, songs: List<Song>) {
+        require(songs.none { it.musicSource == MusicSource.QQ_MUSIC }) { "QQ 音乐歌曲只能加入 QQ 歌单" }
         val expected = session(); editable(id, expected)
         api.request("POST", "playlists/$id/tracks", body = buildJsonObject { put("songs", JsonArray(songs.map(::metadata))) }, authenticated = true, expectedSession = expected)
         revision.update { it + 1 }
@@ -112,30 +117,47 @@ class LibraryRepository(private val api: ApiClient, private val accountId: () ->
     }
     suspend fun recordPlay(song: Song, expected: RequestSession = session()) {
         // CurrentMusic statistics must also be updated when the music library uses native Netease.
-        if (accountId() != 0L && !song.video && !song.privateLibrary) {
-            api.request("POST", "plays/${song.id}", body = metadata(song), authenticated = true, expectedSession = expected)
+        if (accountId() != 0L && !song.video && !song.privateLibrary && song.musicSource != MusicSource.QQ_MUSIC) {
+            val body = JsonObject(metadata(song) + ("platform" to JsonPrimitive("x")))
+            api.request("POST", "plays/${song.id}", body = body, authenticated = true, expectedSession = expected)
             revision.update { it + 1 }
         }
     }
     suspend fun listen(song: Song, milliseconds: Long, expected: RequestSession = session()) {
-        if (accountId() != 0L && !song.video && !song.privateLibrary && milliseconds > 0) api.request("POST", "plays/${song.id}",
-            body = buildJsonObject { put("ms", milliseconds) }, authenticated = true, expectedSession = expected)
+        if (accountId() != 0L && !song.video && !song.privateLibrary && song.musicSource != MusicSource.QQ_MUSIC && milliseconds > 0) api.request("POST", "plays/${song.id}",
+            body = buildJsonObject { put("ms", milliseconds); put("platform", "x") },
+            authenticated = true, expectedSession = expected)
     }
     suspend fun artist(id: Long, offset: Int = 0): Artist {
         val d = api.get<ArtistDto>("ncm/artist", mapOf("id" to "$id", "offset" to "$offset", "limit" to "100"))
         return Artist(id, d.name, d.pic.replace("http:", "https:"), d.alias, d.songs.map(SongDto::toDomain), d.more,
-            d.albums.map(AlbumDto::domain), d.albumTotal, d.total)
+            d.albums.map(AlbumDto::domain), d.albumTotal, d.total, d.briefDesc, d.mvTotal)
+    }
+    suspend fun artistMvs(id: Long, offset: Int = 0): ArtistMvsDto =
+        api.get<ArtistMvsDto>("ncm/artist/mv", mapOf("id" to "$id", "offset" to "$offset", "limit" to "20"))
+    suspend fun artistProfile(id: Long): ArtistProfile = api.get("ncm/artist/profile", mapOf("id" to "$id"))
+    suspend fun artistFans(id: Long): ArtistFans = api.get("ncm/artist/fans", mapOf("id" to "$id"))
+    suspend fun artistOverview(id: Long): ArtistOverview {
+        val d = api.get<ArtistOverviewDto>("ncm/artist/overview", mapOf("id" to "$id"))
+        return ArtistOverview(d.songs.map(SongDto::toDomain).filter { it.id > 0 }.distinctBy { it.id },
+            d.albums.map(AlbumDto::domain).filter { it.id > 0 }.distinctBy { it.id },
+            d.artists.filter { it.id > 0 && it.id != id }.distinctBy { it.id }
+                .map { CatalogEntry(it.id, it.name, it.pic.replace("http:", "https:"), it.alias) },
+            d.awardTitle, d.awardCount, d.awardImages)
     }
     suspend fun artistBiography(id: Long, fresh: Boolean = false): ArtistBiography = backgroundRead("artist-bio/$id", fresh) {
         api.get<ArtistBiography>("ncm/artist/desc", mapOf("id" to "$id")).also {
             if (it.code != 200) throw ApiException(if (it.code == 404) ErrorKind.NotFound else ErrorKind.Server, it.code)
         }
     }
-    suspend fun artistAlbums(id: Long, offset: Int): Pair<List<Album>, Boolean> {
-        val d = api.get<ArtistAlbumsDto>("ncm/artist/albums", mapOf("id" to "$id", "offset" to "$offset", "limit" to "30"))
+    suspend fun artistAlbums(id: Long, offset: Int, order: String = "time"): Pair<List<Album>, Boolean> {
+        require(order in setOf("time", "hot"))
+        val d = api.get<ArtistAlbumsDto>("ncm/artist/albums", mapOf("id" to "$id", "offset" to "$offset", "limit" to "30", "order" to order))
         return d.albums.map(AlbumDto::domain) to d.more
     }
-    suspend fun album(id: Long) = api.get<AlbumDto>("ncm/album", mapOf("id" to "$id")).domain().copy(id = id)
+    suspend fun album(id: Long) = api.get<AlbumDto>("ncm/album", mapOf("id" to "$id")).domain().let { album ->
+        album.copy(id = id, songs = album.songs.map { it.copy(albumId = id) })
+    }
     suspend fun catalog(query: String, albums: Boolean, offset: Int = 0): CatalogPage {
         val d = api.get<CatalogSearchDto>("ncm/search", mapOf("keywords" to query, "type" to if (albums) "album" else "artist", "limit" to "30", "offset" to "$offset"))
         return if (albums) CatalogPage(d.albums.map { CatalogEntry(it.id, it.name, it.pic.replace("http:", "https:"), it.artist) }, d.hasMore.album, d.totals.album)

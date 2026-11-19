@@ -22,7 +22,9 @@ import io.github.currencortex.music.ui.component.nativeui.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import io.github.currencortex.music.core.media.PlayerState
+import io.github.currencortex.music.core.network.ErrorKind
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.map as mapPlayback
 import java.time.LocalDate
 import androidx.lifecycle.Lifecycle
@@ -33,10 +35,12 @@ import androidx.lifecycle.compose.LifecycleEventEffect
     val account by vm.container.accountRepository.state.collectAsStateWithLifecycle()
     val home by vm.home.collectAsStateWithLifecycle()
     val preferences by vm.container.musicSettings.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     val avatarVersions by vm.container.profileRepository.avatarVersions.collectAsStateWithLifecycle()
     val scales by vm.container.profileRepository.scales.collectAsStateWithLifecycle()
     val nativeAccount by vm.container.neteaseSessions.state.collectAsStateWithLifecycle()
     val direct = vm.container.nativeNetease != null
+    val qqPlatform = preferences.musicPlatform == io.github.currencortex.music.data.settings.MusicPlatform.QQ_MUSIC
     val user = profile?.takeIf { it.id == account.account?.id }
     val avatar = user?.avatar ?: account.account?.avatar ?: nativeAccount.profile?.avatar.orEmpty()
     val decoration = user?.decoration.orEmpty()
@@ -63,13 +67,19 @@ import androidx.lifecycle.compose.LifecycleEventEffect
         vm.refreshForNewDay()
     }
     val dailyLoading = (!direct && account.loading) || (home.loading && "每日推荐" in home.pendingSections)
+    val recommendedPlaylistsLoading = (!direct && account.loading) || "每日推荐歌单" in home.pendingSections
+    val homeLoadFailed = home.errors.any { (section, error) ->
+        section != "每日推荐歌单" || error != ErrorKind.NeteaseBindingRequired.message
+    }
     val listState = rememberLazyListState()
     PreloadMusicCovers(home.forYou.take(8).map { it.cover }, 320)
     PreloadMusicCovers(home.playlists.take(4).map { it.cover }, 320)
+    PreloadMusicCovers(home.recommendedPlaylists.take(4).map { it.cover }, 320)
     SettingsUiScope {
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val artworkCardWidth = (maxWidth.coerceAtMost(840.dp) - 64.dp) / 2.5f
-    SettingsScrollLayout(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter), glassOverContent = false, topBar = {
+    SettingsScrollLayout(Modifier.widthIn(max = 840.dp).fillMaxSize().align(Alignment.TopCenter),
+        glassOverContent = false, topBar = {
         SettingsRootTopBar("Current Music", Modifier.testTag("home_root_toolbar"), titleContent = { HomeBrandTitle() }) {
             HomeProfileAvatar(avatarUrl, (!account.loading || direct) && home.loaded, onProfile,
                 decorationUrl = decorationUrl, decorationScale = scales[decoration] ?: 1.0)
@@ -78,11 +88,16 @@ import androidx.lifecycle.compose.LifecycleEventEffect
         LazyColumn(Modifier.fillMaxSize().testTag("music_home"), state = listState,
             contentPadding = PaddingValues(start = 16.dp, top = topInset + 8.dp, end = 16.dp, bottom = 24.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        rootMotionItems(skipKeys = setOf("for-you", "playlists")) {
+        rootMotionItems(skipKeys = setOf("for-you", "recommended-playlists", "playlists")) {
             item(key = "search") { MusicSearchBar(searchQuery, onSearchSubmit,
                 Modifier.testTag("open_home_search").onGloballyPositioned { onSearchBounds(it.boundsInRoot()) }
-                    .graphicsLayer { alpha = if (hideSearch) 0f else 1f }, onActivate = onSearch, inputTag = "home_search_field") }
-            if (!home.loading && home.errors.isNotEmpty()) item(key = "retry") {
+                    .graphicsLayer { alpha = if (hideSearch) 0f else 1f }, onActivate = onSearch, inputTag = "home_search_field",
+                leadingContent = {
+                    MusicPlatformSwitcher(preferences.musicPlatform, { platform ->
+                        scope.launch { vm.container.musicSettings.setMusicPlatform(platform) }
+                    }, enabled = !hideSearch)
+                }) }
+            if (!home.loading && homeLoadFailed) item(key = "retry") {
                 MusicTextAction("部分内容加载失败，重新加载", vm::refresh, Modifier.testTag("home_retry"))
             }
             item(key = "daily") {
@@ -98,7 +113,9 @@ import androidx.lifecycle.compose.LifecycleEventEffect
                     }, onOpen = { navigate("lib/daily") }, onRetry = vm::refresh,
                     onConnect = { navigate("user/binding") }, dateLabel = "${today.monthValue}月${today.dayOfMonth}日", room = request)
             }
-            item(key = "personal-roaming") { HomePersonalRoamingEntry { navigate("lib/roaming") } }
+            item(key = "personal-roaming") {
+                HomePersonalRoamingEntry({ navigate(if (qqPlatform) "qq/roaming" else "lib/roaming") }, qqMusic = qqPlatform)
+            }
             item(key = "shortcuts") { HomeLibraryShortcuts(navigate, request != null) }
             if (!direct && !account.loading && account.account == null) item(key = "login") {
                 MusicTextAction("登录后查看推荐与音乐库 ›", { navigate("user/login") })
@@ -117,6 +134,30 @@ import androidx.lifecycle.compose.LifecycleEventEffect
             if (!dailyLoading && home.forYou.isEmpty()) item(key = "for-you-empty") {
                 Text(if (home.errors["每日推荐"] != null) "推荐暂时不可用，稍后重试" else "暂无推荐，先从每日精选开始听",
                     fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurface.copy(alpha = .5f))
+            }
+            item(key = "recommended-playlists-header") { SettingsListHeader("每日推荐歌单") }
+            if (recommendedPlaylistsLoading && home.recommendedPlaylists.isEmpty())
+                item(key = "recommended-playlists-loading") { LoadingArtworkCards(artworkCardWidth) }
+            if (home.recommendedPlaylists.isNotEmpty()) item(key = "recommended-playlists") { ElasticLazyRow(edgeToEdgeInset = 16.dp) {
+                items(home.recommendedPlaylists, key = { it.id }) { playlist ->
+                    MusicArtworkCard(playlist.cover, playlist.name,
+                        playlist.description.ifBlank { if (playlist.count > 0) "${playlist.count} 首" else "为你推荐" },
+                        { navigate("lib/ncmplaylist/${playlist.id}") },
+                        Modifier.width(artworkCardWidth).testTag("home_recommended_playlist_${playlist.id}"),
+                        onLongClick = { bounds -> playlistPreview = playlist to bounds },
+                        longClickLabel = "预览歌单与操作", playlistTransition = true)
+                }
+            } }
+            if (!recommendedPlaylistsLoading && (home.recommendedPlaylists.isEmpty() || home.errors["每日推荐歌单"] != null)) item(key = "recommended-playlists-status") {
+                val error = home.errors["每日推荐歌单"]
+                when {
+                    !direct && account.account == null -> MusicTextAction("登录后查看每日推荐歌单 ›", { navigate("user/login") })
+                    error == ErrorKind.NeteaseBindingRequired.message ->
+                        MusicTextAction("连接网易云音乐，获取每日推荐歌单 ›", { navigate("user/binding") })
+                    error != null -> MusicTextAction("歌单推荐暂时不可用，重新加载", vm::refresh, enabled = !home.loading)
+                    home.recommendedPlaylists.isEmpty() -> Text("今天暂无推荐歌单，稍后再来看看",
+                        fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurface.copy(alpha = .5f))
+                }
             }
             item(key = "recent-header") { HomeSectionHeader("最近播放", "全部") { navigate("lib/recent") } }
             home.errors["最近播放"]?.let { item { Text(it, fontSize = 13.sp) } }
@@ -137,7 +178,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
                             navigate("lib/${if (playlist.source == "netease") "ncmplaylist" else "playlist"}/${playlist.id}")
                         }, Modifier.width(artworkCardWidth).testTag("home_playlist_${playlist.source}_${playlist.id}"),
                             onLongClick = { bounds -> playlistPreview = playlist to bounds },
-                            longClickLabel = "预览歌单与操作")
+                            longClickLabel = "预览歌单与操作", playlistTransition = true)
                 }
             } }
             if ((!account.loading || direct) && "我的歌单" !in home.pendingSections && home.playlists.isEmpty() && home.errors["我的歌单"] == null)
@@ -165,7 +206,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
             onDismiss = { artworkPreview = null })
     }
     playlistPreview?.let { (playlist, bounds) ->
-        PlaylistArtworkPreview(playlist, bounds, canPlay = playlistPlayback.enabled,
+        PlaylistArtworkPreview(vm, playlist, bounds, canPlay = playlistPlayback.enabled,
             onPlay = { shuffle -> playlistPlayback.play(playlist, shuffle) },
             onOpen = { navigate("lib/${if (playlist.source == "netease") "ncmplaylist" else "playlist"}/${playlist.id}") },
             onDismiss = { playlistPreview = null })
@@ -173,17 +214,18 @@ import androidx.lifecycle.compose.LifecycleEventEffect
     sharingSong?.let { song -> io.github.currencortex.music.feature.share.SongShareDialog(song) { sharingSong = null } }
 }
 
-@Composable private fun HomeSectionHeader(title: String, action: String, onClick: () -> Unit) {
+@Composable internal fun HomeSectionHeader(title: String, action: String, onClick: () -> Unit) {
     SettingsListHeader(title) {
         GlassActionButton(action, onClick, fillWidth = false, minHeight = 36.dp)
     }
 }
 
-@Composable private fun HomePersonalRoamingEntry(onOpen: () -> Unit) {
+@Composable internal fun HomePersonalRoamingEntry(onOpen: () -> Unit, qqMusic: Boolean = false) {
     SettingsGroup {
-        SettingsPreference("私人漫游", "按你的喜好，连续听点好音乐",
+        SettingsPreference(if (qqMusic) "猜你喜欢" else "私人漫游",
+            if (qqMusic) "推荐歌曲" else "按你的喜好，连续听点好音乐",
             Modifier.testTag("open_personal_roaming"), onClick = onOpen,
             leading = { Icon(MusicIcons.Headphones, null, Modifier.size(24.dp), tint = MiuixTheme.colorScheme.primary) },
-            trailing = { MusicTransportButton("打开私人漫游", onOpen) })
+            trailing = { MusicTransportButton(if (qqMusic) "播放推荐歌曲" else "打开私人漫游", onOpen) })
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -31,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +40,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.yukonga.miuix.kmp.basic.Text
 import io.github.currencortex.music.data.song.formatNeteaseCount
+import io.github.currencortex.music.data.song.ChorusSegment
 
 internal data class PlayerButtonVisual(val pressed: Boolean, val scale: Float, val glyphProgress: Float, val alpha: Float)
 internal val PlayerButtonVisuals = SemanticsPropertyKey<PlayerButtonVisual>("PlayerButtonVisuals")
@@ -62,8 +65,14 @@ internal val PlayerSeekVisuals = SemanticsPropertyKey<PlayerSeekVisual>("PlayerS
     leadingAction: (@Composable () -> Unit)? = null, trailingAction: (@Composable () -> Unit)? = null) {
     val state by vm.state.collectAsStateWithLifecycle()
     val queue by vm.queue.collectAsStateWithLifecycle()
+    val seekTint by rememberPlayerSeekTint(queue.current?.cover.orEmpty())
     val actions by vm.actions.collectAsStateWithLifecycle()
-    val knownDuration = state.durationMs.takeIf { it > 0 } ?: queue.current?.durationMs ?: 0
+    // Observe server changes even while the song and playback position are unchanged.
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val chorus = key(settings.server) { rememberPlayerChorus(queue.current, vm.container.musicRepository.insights) }
+    val currentMatches = state.song?.let { it.id == queue.current?.id && it.musicSource == queue.current?.musicSource &&
+        it.privateIdentity == queue.current?.privateIdentity } == true
+    val knownDuration = state.durationMs.takeIf { it > 0 && currentMatches } ?: queue.current?.durationMs ?: 0
     val enabled = state.canControlPlayback && queue.current != null
     var drag by remember(queue.current?.id) { mutableStateOf<Float?>(null) }
     val position = drag?.let { (it * knownDuration).toLong() } ?: state.positionMs
@@ -72,7 +81,8 @@ internal val PlayerSeekVisuals = SemanticsPropertyKey<PlayerSeekVisual>("PlayerS
             key(queue.current?.id) { PlayerSeekBar(drag ?: (state.positionMs.toFloat() / knownDuration.coerceAtLeast(1)).coerceIn(0f, 1f),
                 enabled && knownDuration > 0, { drag = it }, {
                     vm.player.seek((it * knownDuration).toLong()); drag = null
-                }, { drag = null }, bufferedValue = if (state.song?.id == queue.current?.id) state.bufferedProgress(knownDuration) else 0f) }
+                }, { drag = null }, bufferedValue = if (currentMatches) state.bufferedProgress(knownDuration) else 0f,
+                chorusSegments = chorus, durationMs = knownDuration, tint = seekTint) }
             Box(Modifier.fillMaxWidth()) {
                 Text(formatPlayerTime(position), Modifier.align(Alignment.CenterStart),
                     fontSize = 11.sp, color = Color.White.copy(alpha = .48f))
@@ -114,7 +124,12 @@ internal val PlayerSeekVisuals = SemanticsPropertyKey<PlayerSeekVisual>("PlayerS
 }
 
 @Composable internal fun PlayerSeekBar(value: Float, enabled: Boolean, onPreview: (Float) -> Unit,
-    onSeek: (Float) -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier, bufferedValue: Float = 0f) {
+    onSeek: (Float) -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier, bufferedValue: Float = 0f,
+    chorusSegments: List<ChorusSegment> = emptyList(), durationMs: Long = 0, tint: Color = Color.White) {
+    val chorus = remember(chorusSegments, durationMs) { playerChorusSegments(chorusSegments, durationMs) }
+    val chorusDescription = remember(chorus) {
+        chorus.joinToString("；") { "高潮 ${formatPlayerTime(it.startMs)}–${formatPlayerTime(it.endMs)}" }
+    }
     val preview by rememberUpdatedState(onPreview)
     val seek by rememberUpdatedState(onSeek)
     val cancel by rememberUpdatedState(onCancel)
@@ -125,15 +140,26 @@ internal val PlayerSeekVisuals = SemanticsPropertyKey<PlayerSeekVisual>("PlayerS
     var dragging by remember { mutableStateOf(false) }
     var target by remember { mutableFloatStateOf(progress) }
     var bounds by remember { mutableStateOf(IntSize.Zero) }
-    val thickness = animateFloatAsState(if (pressed) 8f else 3f,
-        tween(if (pressed) 100 else 160, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "seek press")
+    val density = LocalDensity.current
+    val chorusTracks = remember(chorus, durationMs, bounds.width, density) {
+        playerSeekChorusTracks(chorus, durationMs, bounds.width.toFloat(), with(density) { 10.dp.toPx() })
+    }
+    val positionMs = (if (pressed) target else progress).toDouble() * durationMs
+    val inChorus = chorus.any { positionMs >= it.startMs && positionMs < it.endMs }
+    val chorusGlow by animateFloatAsState(if (inChorus) 1f else 0f, tween(280), label = "seek chorus colour")
+    val glowTint = lerp(tint, PlayerSeekChorusGold, chorusGlow)
+    val glow = remember(glowTint) { PlayerSeekGlow(glowTint) }
+    val thickness = animateFloatAsState(if (dragging) 6f else 4f,
+        tween(if (dragging) 220 else 280, easing = LinearEasing), label = "seek press")
+    val glowAlpha = animateFloatAsState(if (enabled && !dragging) 1f else 0f,
+        tween(if (dragging || !enabled) 220 else 280, easing = LinearEasing), label = "seek glow visibility")
     val buffered = animateFloatAsState(buffer, tween(180), label = "audio buffer progress")
     Canvas(modifier.fillMaxWidth().height(34.dp).onSizeChanged { bounds = it }.testTag("player_seek").semantics {
         progressBarRangeInfo = ProgressBarRangeInfo(if (pressed) target else progress, 0f..1f)
         contentDescription = "播放进度"
         this[PlayerBufferedProgress] = buffer
         this[PlayerSeekVisuals] = PlayerSeekVisual(pressed, dragging, thickness.value)
-        stateDescription = "已加载 ${(buffer * 100).toInt()}%"
+        stateDescription = "已加载 ${(buffer * 100).toInt()}%" + if (chorus.isEmpty()) "" else "；$chorusDescription"
         if (enabled) setProgress {
             if (!it.isFinite()) false else { seek(it.coerceIn(0f, 1f)); true }
         } else disabled()
@@ -197,12 +223,17 @@ internal val PlayerSeekVisuals = SemanticsPropertyKey<PlayerSeekVisual>("PlayerS
         val y = size.height / 2
         val end = size.width * if (pressed) target else progress
         val stroke = thickness.value.dp.toPx()
-        val ink = Color.White.copy(alpha = if (enabled) .85f else .28f)
+        val ink = if (enabled) tint else Color.White.copy(alpha = .28f)
+        if (glowAlpha.value > 0f) with(glow) { drawHalo(end, stroke, glowAlpha.value) }
         drawLine(Color.White.copy(alpha = .18f), Offset(0f, y), Offset(size.width, y), stroke, StrokeCap.Round)
         if (buffered.value > 0f) drawLine(Color.White.copy(alpha = .42f), Offset(0f, y),
             Offset(size.width * buffered.value, y), stroke, StrokeCap.Round)
-        drawLine(ink, Offset(0f, y), Offset(end, y), stroke, StrokeCap.Round)
-        if (pressed) drawCircle(ink, 6.dp.toPx(), Offset(end, y))
+        if (end > 0f) drawLine(ink, Offset(0f, y), Offset(end, y), stroke, StrokeCap.Round)
+        // Draw above the buffer/progress so markers remain visible after playback passes them.
+        // Distinct played/unplayed shades preserve the playhead position inside a chorus.
+        chorusTracks.forEach { track -> with(track) { draw(end, stroke, enabled) } }
+        // Continue the highlight through the gold section and rounded cap without a separate white tip.
+        if (enabled) with(glow) { drawHighlight(end, stroke) }
     }
 }
 
@@ -224,21 +255,20 @@ internal val PlayerSeekVisuals = SemanticsPropertyKey<PlayerSeekVisual>("PlayerS
         }) {
             val ink = Color.White.copy(alpha = if (enabled) 1f else .28f)
             if (direction == 0) {
-                Image(painterResource(R.drawable.player_symbol_play_arrow_fill1), null,
-                    Modifier.fillMaxSize().graphicsLayer { alpha = 1 - glyph.value }, colorFilter = ColorFilter.tint(ink))
-                Image(painterResource(R.drawable.player_symbol_pause_fill1), null,
-                    Modifier.fillMaxSize().graphicsLayer { alpha = glyph.value }, colorFilter = ColorFilter.tint(ink))
+                PlayerSharedControlIcon(PlayerSharedControl.TOGGLE, ink, Modifier.fillMaxSize(), playing = playing)
             } else Image(painterResource(if (direction < 0) R.drawable.player_symbol_skip_previous_fill1 else R.drawable.player_symbol_skip_next_fill1),
                 null, Modifier.fillMaxSize(), colorFilter = ColorFilter.tint(ink))
         }
     }
 }
 
-internal enum class PlayerIcon { COLLAPSE, MORE, SHARE, EFFECTS, LYRICS, QUEUE, CAST, LIKE, COMMENT, ALARM, REPEAT, REPEAT_ONE, SHUFFLE, HEART_MODE }
+internal enum class PlayerIcon { COLLAPSE, MORE, SHARE, EFFECTS, LYRICS, QUEUE, LIKE, COMMENT, ALARM, REPEAT, REPEAT_ONE, SHUFFLE, HEART_MODE }
 
 @Composable internal fun PlayerIconButton(icon: PlayerIcon, label: String, onClick: () -> Unit,
-    modifier: Modifier = Modifier, selected: Boolean = false, count: Long? = null, showCount: Boolean = false,
-    enabled: Boolean = true, loading: Boolean = false, onLongClick: (() -> Unit)? = null) {
+    modifier: Modifier = Modifier, selected: Boolean = false, count: Long? = null, countLabel: String? = null,
+    showCount: Boolean = false,
+    enabled: Boolean = true, loading: Boolean = false, onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String = "选择其他歌单") {
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
     val scale = animateFloatAsState(if (pressed && enabled) .88f else 1f,
@@ -248,8 +278,8 @@ internal enum class PlayerIcon { COLLAPSE, MORE, SHARE, EFFECTS, LYRICS, QUEUE, 
         infiniteRepeatable(tween(900, easing = LinearEasing)), label = "action spinner").value else 0f
     Box(modifier.size(48.dp).combinedClickable(enabled = enabled, role = Role.Button, interactionSource = interactions,
         indication = null, onClick = onClick, onLongClick = onLongClick,
-        onLongClickLabel = if (onLongClick != null) "选择其他歌单" else null).semantics {
-            contentDescription = label + if (count != null) "，网易云数量 $count" else ""; this.selected = selected
+        onLongClickLabel = if (onLongClick != null) onLongClickLabel else null).semantics {
+            contentDescription = label + (countLabel ?: count?.toString())?.let { "，数量 $it" }.orEmpty(); this.selected = selected
             if (!enabled) disabled()
             this[PlayerButtonVisuals] = PlayerButtonVisual(pressed, scale.value, 0f, opacity.value)
         }, contentAlignment = Alignment.Center) {
@@ -258,6 +288,8 @@ internal enum class PlayerIcon { COLLAPSE, MORE, SHARE, EFFECTS, LYRICS, QUEUE, 
         val iconModifier = Modifier.size(24.dp).graphicsLayer { scaleX = scale.value; scaleY = scaleX }
         if (loading) Canvas(iconModifier) {
             drawArc(ink, rotation, 270f, false, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        } else if (icon == PlayerIcon.QUEUE) {
+            PlayerSharedControlIcon(PlayerSharedControl.QUEUE, ink, iconModifier)
         } else Image(painterResource(when (icon) {
             PlayerIcon.COLLAPSE -> R.drawable.player_symbol_keyboard_arrow_down
             PlayerIcon.MORE -> R.drawable.player_symbol_more_horiz
@@ -265,7 +297,6 @@ internal enum class PlayerIcon { COLLAPSE, MORE, SHARE, EFFECTS, LYRICS, QUEUE, 
             PlayerIcon.EFFECTS -> R.drawable.player_symbol_graphic_eq
             PlayerIcon.LYRICS -> R.drawable.player_symbol_lyrics
             PlayerIcon.QUEUE -> R.drawable.player_symbol_queue_music
-            PlayerIcon.CAST -> R.drawable.player_symbol_airplay
             PlayerIcon.LIKE -> if (selected) R.drawable.player_symbol_favorite_fill1 else R.drawable.player_symbol_favorite
             PlayerIcon.COMMENT -> R.drawable.player_symbol_chat_bubble
             PlayerIcon.ALARM -> R.drawable.player_symbol_alarm
@@ -274,7 +305,7 @@ internal enum class PlayerIcon { COLLAPSE, MORE, SHARE, EFFECTS, LYRICS, QUEUE, 
             PlayerIcon.SHUFFLE -> R.drawable.player_symbol_shuffle
             PlayerIcon.HEART_MODE -> R.drawable.player_symbol_ecg_heart
         }), null, iconModifier, colorFilter = ColorFilter.tint(ink))
-        if (showCount) Text(count?.let(::formatNeteaseCount) ?: "—", fontSize = 9.sp,
+        if (showCount) Text(countLabel ?: count?.let(::formatNeteaseCount) ?: "—", fontSize = 9.sp,
             color = Color.White.copy(alpha = .8f), maxLines = 1,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp).testTag("${icon.name.lowercase()}_count"))
     }

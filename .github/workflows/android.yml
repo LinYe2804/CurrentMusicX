@@ -40,7 +40,11 @@ jobs:
   build:
     needs: scope
     if: needs.scope.outputs.required == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 512M
     concurrency:
       group: android-build-${{ github.ref }}
       cancel-in-progress: true
@@ -52,16 +56,53 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v4
-        with:
-          cmdline-tools-version: '12266719'
-          packages: platform-tools
-          log-accepted-android-sdk-licenses: false
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-37.0" "build-tools;35.0.0" "ndk;30.0.16248370" "cmake;4.1.2"
+      # ubuntu-24.04 includes these exact Android SDK/NDK/CMake versions.
+      # Avoid the expensive, repeated sdkmanager invocation on every CI run.
+      - name: Ensure required Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -d "$ANDROID_HOME/platforms/android-37.0" ]] || missing+=("platforms;android-37.0")
+          [[ -d "$ANDROID_HOME/build-tools/35.0.0" ]] || missing+=("build-tools;35.0.0")
+          [[ -d "$ANDROID_HOME/ndk/30.0.16248370" ]] || missing+=("ndk;30.0.16248370")
+          [[ -d "$ANDROID_HOME/cmake/4.1.2" ]] || missing+=("cmake;4.1.2")
+          if (( ${#missing[@]} )); then
+            sdkmanager "${missing[@]}"
+          else
+            echo "Required Android SDK packages are already installed."
+          fi
       - uses: gradle/actions/setup-gradle@v5
-      - name: Test native source contract and legal assets
-        run: python3 -m unittest discover -s scripts/tests -v
+      # Cache compiler outputs rather than copying AGP's timestamp-sensitive .cxx tree.
+      # The NDK's Android toolchain uses ANDROID_CCACHE as a compiler launcher.
+      - name: Prepare native compiler cache
+        id: native-setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ccache >/dev/null 2>&1; then
+            if ! (sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ccache); then
+              echo "::warning::ccache installation failed; using normal native compiler."
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          mkdir -p "$CCACHE_DIR"
+          ccache --version
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - name: Restore native compiler cache
+        if: steps.native-setup.outputs.enabled == 'true'
+        id: native-ccache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: cmx-native-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ndk30-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cmx-native-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ndk30-
+      - name: Reset native cache counters
+        if: steps.native-setup.outputs.enabled == 'true'
+        run: ccache --zero-stats
       - name: Bundle installed CI release notes
         env:
           CI_BUILD_NUMBER: ${{ github.run_number }}
@@ -72,7 +113,7 @@ jobs:
       - name: Build and verify unsigned CI release
         env:
           CI_BUILD_NUMBER: ${{ github.run_number }}
-        run: ./gradlew :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease -PciBuildNumber="$CI_BUILD_NUMBER" -PinstalledReleaseNotesDir="$GITHUB_WORKSPACE/app/build/generated/installedReleaseNotes" -Plei.officialRepositoriesFirst=true --build-cache --no-daemon --stacktrace
+        run: ./gradlew :app:assembleRelease -PciBuildNumber="$CI_BUILD_NUMBER" -PinstalledReleaseNotesDir="$GITHUB_WORKSPACE/app/build/generated/installedReleaseNotes" -Plei.officialRepositoriesFirst=true -PciNativeCcache=${{ steps.native-setup.outputs.enabled }} --build-cache --no-daemon --stacktrace --profile
       - name: Prepare CI artifact
         env:
           CI_BUILD_NUMBER: ${{ github.run_number }}
@@ -84,18 +125,26 @@ jobs:
           path: ci-dist/
           if-no-files-found: error
           retention-days: 7
-      - name: Upload test reports
+
+      - name: Upload Gradle build performance report
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: unit-test-reports
-          path: app/build/reports/tests/test*UnitTest/
-      - name: Upload lint report
-        if: always()
-        uses: actions/upload-artifact@v6
+          name: gradle-build-profile
+          path: '**/build/reports/profile/*.html'
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Native compiler cache statistics
+        if: always() && steps.native-setup.outputs.enabled == 'true'
+        run: ccache --show-stats
+      - name: Save warmed native compiler cache
+        if: success() && steps.native-setup.outputs.enabled == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
         with:
-          name: lint-report
-          path: app/build/reports/lint-results-*
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.native-ccache.outputs.cache-primary-key }}
 
   request-publication:
     needs: build

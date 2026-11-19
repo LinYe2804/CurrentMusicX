@@ -6,6 +6,9 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /** Adapts official NetEase responses to the app's existing models, without a proxy server. */
 class NeteaseGateway(val transport: NeteaseTransport) {
@@ -13,6 +16,9 @@ class NeteaseGateway(val transport: NeteaseTransport) {
     private var listeningOwner: Pair<Long, Long>? = null
     private var listeningMs = 0L
     private var listeningReported = false
+    private var deviceNameRevision: Long? = null
+    private var deviceNameConfirmed = false
+    private var deviceNameAttemptAt = 0L
     val sessions get() = transport.sessions
     // Preserve protected media's selected source. Public lyrics always use NetEase,
     // whose raw YRC/LRC responses never include the project's synthetic word axis.
@@ -32,9 +38,19 @@ class NeteaseGateway(val transport: NeteaseTransport) {
         val album = (raw["al"] ?: raw["album"]) as? JsonObject ?: buildJsonObject {}
         put("ncm_id", raw.long("id")); put("name", raw.text("name"))
         put("artists", artists.joinToString(" / ") { it.text("name") }); put("artist_ids", JsonArray(artists.mapNotNull { it["id"] }))
-        put("album", album.text("name")); put("pic", album.text("picUrl").ifBlank { raw.text("picUrl") }.replace("http:", "https:"))
+        put("album", album.text("name")); put("album_id", album.long("id"))
+        put("pic", album.text("picUrl").ifBlank { raw.text("picUrl") }.replace("http:", "https:"))
         put("duration", raw["dt"] ?: raw["duration"] ?: JsonPrimitive(0)); put("mv", raw["mv"] ?: raw["mvid"] ?: JsonPrimitive(0))
+        put("tns", names(raw, "tns", "transNames"))
+        put("alia", names(raw, "alia", "alias"))
     }
+    private fun names(raw: JsonObject, vararg keys: String) = JsonArray(keys.flatMap { key ->
+        when (val value = raw[key]) {
+            is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            is JsonPrimitive -> listOfNotNull(value.contentOrNull)
+            else -> emptyList()
+        }
+    }.map(String::trim).filter(String::isNotBlank).distinct().map(::JsonPrimitive))
     /** Keeps one line of context around the hits, newline-separated, markers preserved for the UI split. */
     private fun searchLyric(raw: JsonObject): String {
         val value = raw["lyrics"]
@@ -56,11 +72,13 @@ class NeteaseGateway(val transport: NeteaseTransport) {
         put("id", raw.long("id")); put("name", raw.text("name")); put("pic", raw.text("picUrl").ifBlank { raw.text("img1v1Url") })
         put("alias", raw.array("alias").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.joinToString(" / "))
         put("total", raw.long("musicSize")); put("albumTotal", raw.long("albumSize"))
+        put("briefDesc", raw.text("briefDesc")); put("mvTotal", raw.long("mvSize"))
     }
     private fun album(raw: JsonObject, tracks: JsonArray = raw.array("songs")) = buildJsonObject {
         put("id", raw.long("id")); put("name", raw.text("name")); put("pic", raw.text("picUrl"))
         put("artist", raw.obj("artist").text("name")); put("description", raw.text("description"))
         put("publishTime", raw.long("publishTime")); put("company", raw.text("company")); put("size", raw.long("size"))
+        put("type", raw.text("type"))
         put("songs", songs(tracks))
     }
     private fun params(vararg values: Pair<String, JsonElement>) = JsonObject(values.toMap())
@@ -75,12 +93,22 @@ class NeteaseGateway(val transport: NeteaseTransport) {
             clientLog -> NeteaseEncoding.LOG; web -> NeteaseEncoding.WEB; else -> NeteaseEncoding.DESKTOP
         }, session = owner, clientProfile = clientProfile, saveCookies = saveCookies).body
         val code = (raw["code"] as? JsonPrimitive)?.intOrNull ?: 200
+        if (code == 502 && path == "/api/playlist/manipulate/tracks" && body.text("op") == "add")
+            throw ApiException(ErrorKind.NeteaseSongAlreadyInPlaylist, 502)
         if (code != 200) {
             if (code in setOf(301, 401) && authenticated) sessions.markStale(owner)
             throw ApiException(when (code) { 301, 401 -> ErrorKind.NeteaseBindingRequired; 403 -> ErrorKind.Forbidden
-                404 -> ErrorKind.NotFound; 406, 429 -> ErrorKind.RateLimited; else -> ErrorKind.Server }, code)
+                404 -> ErrorKind.NotFound; 405 -> ErrorKind.NeteaseRateLimited
+                406, 429 -> ErrorKind.RateLimited; else -> ErrorKind.Server }, code)
         }
         return raw
+    }
+    private suspend fun likeSong(id: Long, liked: Boolean, expected: NeteaseSession): JsonObject {
+        val uid = expected.credential.profile?.uid?.takeIf { it > 0 }
+            ?: throw ApiException(ErrorKind.NeteaseBindingRequired)
+        return official("/api/song/like", buildJsonObject {
+            put("trackId", id); put("userid", uid); put("like", liked)
+        }, expected = expected, authenticated = true)
     }
     private fun profile(raw: JsonObject): BoundProfile? {
         val info = (raw["profile"] ?: raw.obj("data")["profile"]) as? JsonObject ?: return null
@@ -185,8 +213,7 @@ class NeteaseGateway(val transport: NeteaseTransport) {
         if (path.startsWith("ncmbind/like/")) {
             val id = path.substringAfterLast('/').toLongOrNull()?.takeIf { it > 0 } ?: throw ApiException(ErrorKind.NotFound)
             val liked = body["like"]?.jsonPrimitive?.booleanOrNull ?: throw ApiException(ErrorKind.Parse)
-            return official("/api/radio/like", params("trackId" to JsonPrimitive(id), "like" to JsonPrimitive(liked),
-                "alg" to JsonPrimitive("itembased"), "time" to JsonPrimitive(3)), web = true, expected = expected, authenticated = true)
+            return likeSong(id, liked, expected)
         }
         throw ApiException(ErrorKind.NotFound)
     }
@@ -207,13 +234,24 @@ class NeteaseGateway(val transport: NeteaseTransport) {
                 return official("/api/song/chorus", data("ids" to "[$id]"), expected = expected)
             }
             "song/url", "song/url/v1" -> {
-                val level = arg("level", "auto").let { if (it == "auto") "jymaster" else it }
-                val raw = official("/api/song/enhance/player/url/v1", buildJsonObject {
-                    put("ids", "[$id]"); put("level", level); put("encodeType", "flac")
-                    if (level == "sky") put("immerseType", "c51")
-                }, expected = expected)
-                val track = raw.array("data").mapNotNull { it as? JsonObject }
-                    .firstOrNull { it.long("id").toString() == id } ?: throw ApiException(ErrorKind.Parse)
+                suspend fun trackAt(level: String): JsonObject? {
+                    val raw = official("/api/song/enhance/player/url/v1", buildJsonObject {
+                        put("ids", "[$id]"); put("level", level); put("encodeType", "flac")
+                        if (level == "sky") put("immerseType", "c51")
+                    }, expected = expected)
+                    return raw.array("data").filterIsInstance<JsonObject>().firstOrNull { it.long("id").toString() == id }
+                }
+                val level = arg("level", "auto")
+                if (level == "auto" && arg("supportsDolby") == "1") {
+                    val dolby = try { trackAt("dolby") } catch (e: ApiException) {
+                        if (e.kind !in setOf(ErrorKind.Forbidden, ErrorKind.NotFound, ErrorKind.Server, ErrorKind.Parse, ErrorKind.Unknown)) throw e
+                        null
+                    } catch (_: java.io.IOException) { null }
+                    if (dolby != null && dolby.text("level") == "dolby" && dolby.text("url").toHttpUrlOrNull() != null &&
+                        (dolby["code"] == null || dolby.long("code") == 200L) &&
+                        (dolby["freeTrialInfo"] == null || dolby["freeTrialInfo"] == JsonNull)) return dolby
+                }
+                val track = trackAt(if (level == "auto") "jymaster" else level) ?: throw ApiException(ErrorKind.Parse)
                 if (track.text("url").isBlank()) throw ApiException(ErrorKind.NeteaseAudioUnavailable)
                 return track
             }
@@ -255,14 +293,23 @@ class NeteaseGateway(val transport: NeteaseTransport) {
                 val raw = official("/api/v3/song/detail", data("c" to c), web = true, expected = expected)
                 return buildJsonObject { put("code", 200); put("songs", songs(raw.array("songs"))) }
             }
+            "recommend/resource" -> return official("/api/v1/discovery/recommend/resource",
+                web = true, expected = expected, authenticated = true)
             "user/playlist" -> return official("/api/user/playlist", data("uid" to arg("uid"), "limit" to arg("limit", "100"),
                 "offset" to arg("offset", "0"), "includeVideo" to "true"), web = true, expected = expected, authenticated = true)
+            "user/cloud" -> {
+                val limit = page("limit", 100, min = 1, max = 1000)
+                val offset = page("offset", 0, min = 0, max = 100_000)
+                val raw = official("/api/v1/cloud/get", data("limit" to "$limit", "offset" to "$offset"),
+                    web = true, expected = expected, authenticated = true)
+                return mapCloudPage(raw, offset, limit)
+            }
             "playlist/detail" -> return official("/api/v6/playlist/detail", data("id" to id, "n" to "100000", "s" to arg("s", "0")), expected = expected)
             "playlist/tracks" -> return official("/api/playlist/manipulate/tracks", data("op" to arg("op"), "pid" to arg("pid"),
                 "trackIds" to JsonArray(arg("tracks").split(',').map(::JsonPrimitive)).toString(), "imme" to "true"), expected = expected, authenticated = true)
             "likelist" -> return official("/api/song/like/get", data("uid" to arg("uid")), expected = expected, authenticated = true)
-            "like" -> return official("/api/radio/like", params("trackId" to JsonPrimitive(id), "like" to JsonPrimitive(arg("like") != "false"),
-                "alg" to JsonPrimitive("itembased"), "time" to JsonPrimitive(3)), web = true, expected = expected, authenticated = true)
+            "like" -> return likeSong(id.toLongOrNull()?.takeIf { it > 0 } ?: throw ApiException(ErrorKind.NotFound),
+                arg("like") != "false", expected)
             "song/red/count" -> return official("/api/song/red/count", data("songId" to id), expected = expected)
             "comment/music" -> return official("/api/v1/resource/comments/R_SO_4_$id", params("rid" to JsonPrimitive("R_SO_4_$id"),
                 "limit" to JsonPrimitive(page("limit", 20, min = 1)), "offset" to JsonPrimitive(page("offset", 0, max = Int.MAX_VALUE)), "beforeTime" to JsonPrimitive(0)), web = true, expected = expected)
@@ -282,17 +329,76 @@ class NeteaseGateway(val transport: NeteaseTransport) {
                 val info = async { official("/api/v1/artist/$id", web = true, expected = expected) }
                 val tracks = async { official("/api/v1/artist/songs", data("id" to id, "private_cloud" to "true", "work_type" to "1", "order" to "hot",
                     "offset" to arg("offset", "0"), "limit" to arg("limit", "100")), expected = expected) }
-                val albums = async { official("/api/artist/albums/$id", data("limit" to "6", "offset" to "0", "total" to "true"), web = true, expected = expected) }
-                val raw = info.await(); val page = tracks.await(); val collection = albums.await()
+                // Albums load independently: an optional section must not hide playable songs.
+                val raw = info.await(); val page = tracks.await()
                 buildJsonObject {
                     artist(raw.obj("artist")).forEach { (key, value) -> put(key, value) }
                     put("songs", songs(page.array("songs"))); put("more", page["more"] ?: JsonPrimitive(false)); put("total", page["total"] ?: raw.obj("artist")["musicSize"] ?: JsonPrimitive(0))
-                    put("albums", JsonArray(collection.array("hotAlbums").mapNotNull { it as? JsonObject }.map { album(it) }))
                 }
             }
             "artist/desc" -> return official("/api/artist/introduction", data("id" to id), web = true, expected = expected)
+            "artist/overview" -> {
+                val raw = official("/api/personal/home/page/artist/v2", data("artistId" to id), expected = expected,
+                    clientProfile = NeteaseClientProfile.ANDROID).obj("data")
+                val modules = raw.array("modules").mapNotNull { it as? JsonObject }
+                fun resource(code: String) = modules.firstOrNull { it.text("blockCode") == code }?.obj("resource") ?: buildJsonObject {}
+                val wiki = resource("ARTIST_ENCYCLOPEDIA").obj("encyclopediaData")
+                return buildJsonObject {
+                    put("songs", songs(resource("ARTIST_SONGS").obj("songData").array("songs")))
+                    put("albums", JsonArray(resource("ARTIST_ALBUMS").obj("albumData").array("albums")
+                        .mapNotNull { it as? JsonObject }.map { album(it) }))
+                    put("artists", JsonArray(resource("ARTIST_MORE_ARTISTS").array("moreArtistData")
+                        .mapNotNull { it as? JsonObject }.map(::artist)))
+                    put("awardTitle", wiki.text("awardTitle")); put("awardCount", wiki.long("totalAwardCount"))
+                    put("awardImages", JsonArray(wiki.array("rewardPicUrls").mapNotNull {
+                        (it as? JsonPrimitive)?.contentOrNull?.replace("http:", "https:")?.let(::JsonPrimitive)
+                    }))
+                }
+            }
+            "artist/profile" -> {
+                val raw = official("/api/artist/head/info/get", data("id" to id), expected = expected,
+                    clientProfile = NeteaseClientProfile.ANDROID).obj("data")
+                val profile = raw.obj("artist"); val user = raw.obj("user")
+                if (profile.text("name").isBlank()) throw ApiException(ErrorKind.Parse)
+                return buildJsonObject {
+                    put("name", profile.text("name")); put("cover", profile.text("cover").replace("http:", "https:"))
+                    put("avatar", profile.text("avatar").replace("http:", "https:"))
+                    put("alias", profile.array("alias").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.joinToString(" / "))
+                    put("identify", raw.obj("identify").text("imageDesc")); put("briefDesc", profile.text("briefDesc"))
+                    put("identities", JsonArray(raw.array("secondaryExpertIdentiy").mapNotNull {
+                        (it as? JsonObject)?.text("expertIdentiyName")?.takeIf(String::isNotBlank)?.let(::JsonPrimitive)
+                    }))
+                    put("gender", user.long("gender")); put("birthday", user.long("birthday"))
+                    put("signature", user.text("signature")); put("createTime", user.long("createTime"))
+                    put("songTotal", profile.long("musicSize")); put("albumTotal", profile.long("albumSize")); put("mvTotal", profile.long("mvSize"))
+                }
+            }
+            "artist/fans" -> {
+                val raw = official("/api/artist/follow/count/get", data("id" to id), expected = expected,
+                    clientProfile = NeteaseClientProfile.ANDROID).obj("data")
+                if ((raw["fansCnt"] as? JsonPrimitive)?.longOrNull == null) throw ApiException(ErrorKind.Parse)
+                return buildJsonObject { put("fans", raw.long("fansCnt")); put("follows", raw.long("followCnt")) }
+            }
+            "artist/mv" -> {
+                val raw = official("/api/artist/mvs", data("artistId" to id, "limit" to arg("limit", "20"),
+                    "offset" to arg("offset", "0"), "total" to "true"), web = true, expected = expected)
+                return buildJsonObject {
+                    put("more", raw["hasMore"] ?: raw["more"] ?: JsonPrimitive(false))
+                    put("mvs", JsonArray(raw.array("mvs").mapNotNull { it as? JsonObject }.map { mv ->
+                        buildJsonObject {
+                            put("id", mv.long("id")); put("name", mv.text("name"))
+                            put("cover", mv.text("imgurl16v9").ifBlank { mv.text("imgurl") }.ifBlank { mv.text("cover") }.replace("http:", "https:"))
+                            put("artistName", mv.text("artistName")); put("duration", mv.long("duration"))
+                        }
+                    }))
+                }
+            }
             "artist/albums" -> {
-                val raw = official("/api/artist/albums/$id", data("limit" to arg("limit", "30"), "offset" to arg("offset", "0"), "total" to "true"), web = true, expected = expected)
+                val body = buildJsonObject {
+                    put("limit", arg("limit", "30")); put("offset", arg("offset", "0")); put("total", "true")
+                    if (arg("order") == "hot") put("order", "score")
+                }
+                val raw = official("/api/artist/albums/$id", body, web = true, expected = expected)
                 return buildJsonObject { put("albums", JsonArray(raw.array("hotAlbums").mapNotNull { it as? JsonObject }.map { album(it) })); put("more", raw["more"] ?: JsonPrimitive(false)) }
             }
             "album" -> { val raw = official("/api/v1/album/$id", web = true, expected = expected); return album(raw.obj("album"), raw.array("songs")) }
@@ -306,9 +412,12 @@ class NeteaseGateway(val transport: NeteaseTransport) {
             "playlist/name/update" -> return official("/api/playlist/update/name", data("id" to id, "name" to arg("name")), expected = expected, authenticated = true)
             "playlist/delete" -> return official("/api/playlist/remove", data("ids" to "[$id]"), web = true, expected = expected, authenticated = true)
             "playlist/subscribe" -> {
-                // Only cancellation is exposed by the library's removal action.
-                require(arg("t") == "2")
-                return official("/api/playlist/unsubscribe", data("id" to id), expected = expected, authenticated = true)
+                val action = when (arg("t")) {
+                    "1" -> "subscribe"
+                    "2" -> "unsubscribe"
+                    else -> throw IllegalArgumentException("Invalid playlist subscription action")
+                }
+                return official("/api/playlist/$action", data("id" to id), expected = expected, authenticated = true)
             }
         }
         // Unmapped routes fail immediately; music requests never fall back to CurrentMusic.
@@ -363,6 +472,28 @@ class NeteaseGateway(val transport: NeteaseTransport) {
         val raw = official("/api/play-record/song/list", params("limit" to JsonPrimitive(limit)), web = true, expected = expected, authenticated = true)
         return buildJsonObject { put("songs", songs(JsonArray(raw.obj("data").array("list").mapNotNull { (it as? JsonObject)?.get("data") }))) }
     }
+
+    // Called under listeningMutex. Naming is best effort and existing sessions can register
+    // on their next playback. A rejected name must not invalidate the user's login.
+    private suspend fun namePlaybackDevice(expected: NeteaseSession) {
+        val now = System.nanoTime()
+        if (deviceNameRevision == expected.revision &&
+            (deviceNameConfirmed || now - deviceNameAttemptAt < TimeUnit.MINUTES.toNanos(5))) return
+        deviceNameRevision = expected.revision
+        deviceNameAttemptAt = now
+        deviceNameConfirmed = false
+        try {
+            val response = transport.request("/api/deviceinfo/center/upload",
+                data("deviceName" to NETEASE_PLAYBACK_DEVICE_NAME), session = expected, saveCookies = false,
+                clientProfile = NeteaseClientProfile.PLAYBACK, callTimeoutMs = 5_000)
+            deviceNameConfirmed = response.body.long("code") == 200L
+        } catch (_: ApiException) {
+            // The listening report still carries the device name and checks the session.
+        } catch (_: IOException) {
+            // Retry naming on a later playback after the cooldown.
+        }
+    }
+
     suspend fun recordPlay(id: Long, milliseconds: Long? = null, expectedRevision: Long? = null) = listeningMutex.withLock {
         val expected = sessions.snapshot()
         if (expectedRevision != null && expectedRevision != expected.revision) throw ApiException(ErrorKind.NeteaseSessionChanged)
@@ -385,7 +516,9 @@ class NeteaseGateway(val transport: NeteaseTransport) {
                 if (milliseconds != null) { put("time", listeningMs / 1000); put("end", "playend"); put("download", 0) }
             })
         }
-        official("/api/feedback/weblog", data("logs" to JsonArray(listOf(event)).toString()), clientLog = true, expected = expected, authenticated = true)
+        namePlaybackDevice(expected)
+        official("/api/feedback/weblog", data("logs" to JsonArray(listOf(event)).toString()), clientLog = true,
+            expected = expected, authenticated = true, clientProfile = NeteaseClientProfile.PLAYBACK)
         if (milliseconds != null) listeningReported = true
     }
 }

@@ -16,6 +16,9 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.LastBaseline
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.semantics.getTextLayoutResult
@@ -44,7 +47,8 @@ import androidx.compose.ui.text.style.TextAlign
     effectPadding: Dp = 0.dp, singleLine: Boolean = false, prepareDrawResources: Boolean = false,
     prewarmGlow: Boolean = false, monet: Boolean = false,
     smokeColors: LyricsSmokeColors? = null, smokeFlight: (() -> LyricsSmokeFlight?)? = null,
-    particleColors: LyricsSmokeColors? = null, particleExitAt: Long? = null) {
+    particleColors: LyricsSmokeColors? = null, particleExitAt: Long? = null,
+    wordLiftReturns: Boolean = false, alignFirstBaseline: Boolean = false) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
@@ -76,6 +80,11 @@ import androidx.compose.ui.text.style.TextAlign
         }
         val layoutIndex = if (fontWeight == FontWeight.Normal) 0 else 1
         val layout = layouts[layoutIndex]
+        val firstBaseline = if (alignFirstBaseline) layouts.maxOf { it.firstBaseline } else layout.firstBaseline
+        val baselineShift = firstBaseline - layout.firstBaseline
+        val paragraphHeight = if (alignFirstBaseline)
+            kotlin.math.ceil(firstBaseline + layouts.maxOf { it.size.height - it.firstBaseline }).toInt()
+        else layouts.maxOf { it.size.height }
         SideEffect { onLayout?.invoke(layout) }
         val clusters = remember(line.text) { lyricsClusters(line.text) }
         // A display-only line sweep in Always mode; real word timing and cached data remain authoritative.
@@ -198,7 +207,9 @@ import androidx.compose.ui.text.style.TextAlign
         val begin = words.minOfOrNull { it.startTimeMs } ?: 0
         val finish = maxOf(if (monet && glowTimed) maxOf(line.endTimeMs, (words.maxOfOrNull { it.endTimeMs } ?: 0) + 1050)
             else words.maxOfOrNull { it.endTimeMs } ?: 0,
-            if (liftTimed) (glyphs.maxOfOrNull { it.start } ?: 0) + LYRIC_GLYPH_RISE_MS else 0)
+            if (liftTimed && wordLiftReturns) maxOf(words.maxOfOrNull { it.endTimeMs } ?: 0,
+                (glyphs.maxOfOrNull { it.start } ?: 0) + LYRIC_GLYPH_RISE_MS) + LYRIC_GLYPH_RETURN_MS
+            else if (liftTimed) (glyphs.maxOfOrNull { it.start } ?: 0) + LYRIC_GLYPH_RISE_MS else 0)
         // Static future/past lines do not subscribe their Canvas to the per-frame clock.
         val phase by remember(begin, finish, position, timed, glowTimed, liftTimed, monet) { derivedStateOf {
             when {
@@ -209,14 +220,22 @@ import androidx.compose.ui.text.style.TextAlign
             }
         } }
         val sung = remember { Path() }
-        Canvas(Modifier.fillMaxWidth().height(with(density) { (layouts.maxOf { it.size.height } + padding * 2).toDp() })
+        Canvas(Modifier.fillMaxWidth().height(with(density) { (paragraphHeight + padding * 2).toDp() })
+            .layout { measurable, constraints ->
+                val child = measurable.measure(constraints)
+                layout(child.width, child.height, alignmentLines = mapOf(
+                    FirstBaseline to (padding + firstBaseline).toInt(),
+                    LastBaseline to (padding + layout.lastBaseline + baselineShift).toInt())) {
+                    child.placeRelative(0, 0)
+                }
+            }
             .semantics {
                 if (exposeText) {
                     text = AnnotatedString(line.text)
                     getTextLayoutResult { it.add(layout); true }
                 }
             }) {
-            translate(left = padding.toFloat(), top = padding.toFloat()) {
+            translate(left = padding.toFloat(), top = padding + baselineShift) {
                 if (particleInk != null) {
                     with(particleInk) { draw(position.value, particleColors!!, color, particleExitAt) }
                     return@translate
@@ -266,6 +285,10 @@ import androidx.compose.ui.text.style.TextAlign
                 }
                 if (outline) drawText(layout, color = (if (color.luminance() < .35f) Color.White else Color.Black).copy(alpha = .85f), drawStyle = Stroke(width = 1.6f * density.density))
                 if (phase == 2 && liftTimed) {
+                    if (wordLiftReturns) {
+                        drawImage(raster.ink, colorFilter = tint)
+                        return@translate
+                    }
                     // Draw the completed paragraph in two cached masks, without reading the
                     // frame clock or returning sung glyphs to their original baseline.
                     clipPath(liftedInk, ClipOp.Difference) { drawImage(raster.ink, colorFilter = tint) }
@@ -278,7 +301,8 @@ import androidx.compose.ui.text.style.TextAlign
                 val glowAlpha = glowOpacity?.value ?: 1f
                 val now = if (phase == 1) position.value else 0L
                 if (phase == 1 && liftTimed) glyphs.forEachIndexed { index, glyph ->
-                    lifts[index] = lyricGlyphLift(now, glyph.start) * liftHeight
+                    lifts[index] = (if (wordLiftReturns) lyricGlyphLiftAndReturn(now, glyph.start,
+                        words[glyph.wordIndex].endTimeMs) else lyricGlyphLift(now, glyph.start)) * liftHeight
                 }
                 // Only the currently sung sustained/emphasized word can glow. Completed
                 // words, future words and untimed ordinary lines never receive a halo.

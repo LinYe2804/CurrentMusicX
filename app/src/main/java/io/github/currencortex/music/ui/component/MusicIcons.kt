@@ -74,6 +74,12 @@ object MusicIcons {
         moveTo(5f, 10f); lineTo(5f, 11f); curveTo(5f, 20f, 19f, 20f, 19f, 11f); lineTo(19f, 10f)
         moveTo(12f, 18f); lineTo(12f, 22f); moveTo(8f, 22f); lineTo(16f, 22f)
     }
+    val Star = icon("Star") {
+        moveTo(12f, 3f); lineTo(14.8f, 8.7f); lineTo(21.1f, 9.6f)
+        lineTo(16.55f, 14.05f); lineTo(17.62f, 20.3f); lineTo(12f, 17.35f)
+        lineTo(6.38f, 20.3f); lineTo(7.45f, 14.05f); lineTo(2.9f, 9.6f)
+        lineTo(9.2f, 8.7f); close()
+    }
     val Heart = icon("Heart") {
         moveTo(12f, 21f); lineTo(3.8f, 12.8f)
         curveTo(-1f, 7.8f, 6f, 1f, 12f, 7f)
@@ -166,6 +172,11 @@ object MusicIcons {
         moveTo(16f, 7f); curveTo(16f, 12.4f, 8f, 12.4f, 8f, 7f)
         curveTo(8f, 1.6f, 16f, 1.6f, 16f, 7f); close()
         moveTo(4f, 21f); curveTo(4f, 11f, 20f, 11f, 20f, 21f)
+    }
+    val Room = icon("Room") {
+        moveTo(3f, 10f); lineTo(12f, 3f); lineTo(21f, 10f)
+        moveTo(5f, 9f); lineTo(5f, 21f); lineTo(19f, 21f); lineTo(19f, 9f)
+        moveTo(9f, 21f); lineTo(9f, 14f); lineTo(15f, 14f); lineTo(15f, 21f)
     }
     val Device = icon("Device") {
         moveTo(6f, 2f); lineTo(18f, 2f); lineTo(18f, 22f); lineTo(6f, 22f); close()

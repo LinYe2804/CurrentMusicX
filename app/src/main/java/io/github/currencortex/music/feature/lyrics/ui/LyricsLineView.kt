@@ -23,7 +23,7 @@ import io.github.currencortex.music.feature.lyrics.model.LyricLine
 @Composable internal fun LyricsLineView(line: LyricLine, index: Int, position: State<Long>, focused: Boolean,
     resting: Boolean, distance: Int, canSeek: Boolean, onSeek: (Long) -> Unit, translation: Boolean,
     romanization: Boolean, wordAnimation: Boolean, effects: Boolean, fontSize: Float, weightMode: LyricsWeight,
-    display: LyricsDisplayOptions, monetTone: MonetTone) {
+    display: LyricsDisplayOptions, monetTone: MonetTone, browsing: Boolean = false) {
     val mainFocused by remember(line, position) {
         derivedStateOf { position.value >= line.startTimeMs && position.value < line.endTimeMs }
     }
@@ -44,14 +44,22 @@ import io.github.currencortex.music.feature.lyrics.model.LyricLine
         }) {
             LyricsVocalView(line, position, mainFocused, resting, translation, romanization, wordAnimation,
                 if (line.isBackground) fontSize * .75f else fontSize, weightMode, display, effects, distance,
-                vocalModifier = Modifier.testTag("lyric_vocal_$index"), monetTone = monetTone)
+                vocalModifier = Modifier.testTag("lyric_vocal_$index"), monetTone = monetTone,
+                reserveAuxiliarySpace = line.backgroundVocals.isNotEmpty())
             line.backgroundVocals.forEachIndexed { bgIndex, bg ->
                 val bgFocused by remember(bg, position) { derivedStateOf { position.value >= bg.startTimeMs && position.value < bg.endTimeMs } }
+                val bgVisible = browsing || bgFocused
+                val bgAlpha = animateFloatAsState(if (browsing) .55f else if (bgFocused) 1f else 0f,
+                    tween(180), label = "background vocal opacity")
+                // Measure every backing vocal at its full height even before it is sung.
+                // Only the ink fades; translations and wrapped lines must not shift the next row.
                 Column(Modifier.padding(top = 10.dp).testTag("lyric_bg_${index}_$bgIndex")
+                    .then(if (bgVisible) Modifier else Modifier.clearAndSetSemantics {})
                     .semantics { selected = bgFocused }
-                    .clickable(enabled = canSeek, role = Role.Button) { onSeek(bg.startTimeMs) }
-                    .graphicsLayer { alpha = if (bgFocused) 1f else .55f }) {
-                    LyricsVocalView(bg, position, bgFocused, false, translation, romanization, wordAnimation, fontSize * .75f, weightMode, display, effects, distance, monetTone = monetTone)
+                    .clickable(enabled = canSeek && bgVisible, role = Role.Button) { onSeek(bg.startTimeMs) }
+                    .graphicsLayer { alpha = bgAlpha.value }) {
+                    LyricsVocalView(bg, position, bgFocused, false, translation, romanization, wordAnimation, fontSize * .75f, weightMode, display, effects, distance,
+                        monetTone = monetTone, reserveAuxiliarySpace = true)
                 }
             }
         }
@@ -61,7 +69,7 @@ import io.github.currencortex.music.feature.lyrics.model.LyricLine
 @Composable private fun LyricsVocalView(line: LyricLine, position: State<Long>, focused: Boolean,
     resting: Boolean, translation: Boolean, romanization: Boolean, wordAnimation: Boolean, size: Float, weightMode: LyricsWeight,
     display: LyricsDisplayOptions, effects: Boolean, distance: Int, vocalModifier: Modifier = Modifier,
-    monetTone: MonetTone) {
+    monetTone: MonetTone, reserveAuxiliarySpace: Boolean = false) {
     val weight = lyricsFontWeight(weightMode, focused || resting, display.fontWeight)
     val reservedWeight = lyricsFontWeight(LyricsWeight.ALL, true, display.fontWeight)
     val auxiliaryWeight = lyricsFontWeight(weightMode, true, display.fontWeight)
@@ -79,16 +87,34 @@ import io.github.currencortex.music.feature.lyrics.model.LyricLine
     // for translation, glow or karaoke progress.
     val blur = if ((monetTone.blur == 0f) && effects && android.os.Build.VERSION.SDK_INT >= 31 && !focused && !resting)
         Modifier.blur(if (distance <= 1) 1.4.dp else 2.2.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded) else Modifier
+    val phonetics = remember(line, romanization) {
+        if (romanization) classicLyricPhonetics(line) else ClassicPhoneticLine(emptyList(), line.romanization)
+    }
+    val aligned = phonetics.cells.isNotEmpty()
+    val hasRomanization = phonetics.fallbackRomanization.isNotBlank() || phonetics.cells.any { it.romanization.isNotBlank() }
+    val showTranslation = translation && !(romanization && hasRomanization)
+    val sourceWordTiming = line.words.isNotEmpty() && !line.wordsEstimated
+    val vocalText: @Composable (LyricLine, Modifier, TextAlign) -> Unit = { vocal, modifier, textAlign ->
+        KaraokeText(vocal, position, wordAnimation && (focused || preview || (!resting && display.karaokeScope != KaraokeScope.CURRENT)),
+            modifier, size, weight, textAlign, forceLineAnimation = !aligned && display.karaokeScope == KaraokeScope.ALWAYS,
+            reservedFontWeight = reservedWeight, glow = display.glow && (!aligned || sourceWordTiming) &&
+                (focused || glowing || (!beforeStart && distance <= 4)),
+            wordLift = false, monet = wordAnimation, glowOpacity = glowOpacity, baseOpacity = baseOpacity,
+            prepareDrawResources = true, prewarmGlow = display.glow && (!aligned || sourceWordTiming) && beforeStart && distance == 1,
+            alignFirstBaseline = aligned)
+    }
     Column(Modifier.fillMaxWidth().then(blur)) {
-    if (line.text.isNotBlank()) KaraokeText(line, position, wordAnimation && (focused || preview || (!resting && display.karaokeScope != KaraokeScope.CURRENT)),
-        Modifier.fillMaxWidth().then(vocalModifier), size, weight, align, forceLineAnimation = display.karaokeScope == KaraokeScope.ALWAYS,
-        reservedFontWeight = reservedWeight, glow = display.glow && (focused || glowing || (!beforeStart && distance <= 4)),
-        wordLift = false, monet = wordAnimation, glowOpacity = glowOpacity, baseOpacity = baseOpacity,
-        prepareDrawResources = true, prewarmGlow = display.glow && beforeStart && distance == 1,
-        )
-    LyricsAuxiliaryText(line.translation, position, translation && focused, size * .6f,
-        auxiliaryWeight, align, "lyric_translation", .65f, animateHeight = false)
-    LyricsAuxiliaryText(line.romanization, position, romanization && focused, size * .53f,
-        auxiliaryWeight, align, "lyric_romanization", .5f, animateHeight = false)
+    if (line.text.isNotBlank()) {
+        if (aligned) ClassicPhoneticText(line, phonetics, size, reservedWeight, auxiliaryWeight, align, focused,
+            forceLineAnimation = display.karaokeScope == KaraokeScope.ALWAYS,
+            modifier = vocalModifier) { vocal, modifier -> vocalText(vocal, modifier, TextAlign.Center) }
+        else vocalText(line, Modifier.fillMaxWidth().then(vocalModifier), align)
+    }
+    LyricsAuxiliaryText(line.translation, position, showTranslation && focused, size * .6f,
+        auxiliaryWeight, align, "lyric_translation", .65f,
+        reserveSpace = reserveAuxiliarySpace && showTranslation, animateHeight = false)
+    LyricsAuxiliaryText(phonetics.fallbackRomanization, position, romanization && focused, size * .53f,
+        auxiliaryWeight, align, "lyric_romanization", .5f,
+        reserveSpace = reserveAuxiliarySpace && romanization, animateHeight = false)
     }
 }

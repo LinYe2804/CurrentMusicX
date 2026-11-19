@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src=".github/img/icon.svg" width="88" height="88" alt="CurrentMusicX 蓝色圆润音符图标">
+<img src=".github/img/icon.svg" width="88" height="88" alt="流声音乐（CurrentMusicX）蓝色圆润音符图标">
 
-# CurrentMusicX
+# 流声音乐（CurrentMusicX）
+
+**简体中文** · [English](README-en.md)
 
 **让封面、歌词与音乐一起流动**
 
-网易云音乐库 · Navidrome / Emby 自建曲库 · 双人一起听
+网易云 / QQ 音乐双平台 · Navidrome / Emby 自建曲库 · 双人一起听
 
 Kotlin / Jetpack Compose / Miuix 原生 Android 客户端
 
@@ -20,7 +22,7 @@ Kotlin / Jetpack Compose / Miuix 原生 Android 客户端
 
 </div>
 
-CurrentMusicX 是 [CurrentMusic](https://github.com/backrooms-yrc/CurrentMusic) 的原生 Android 客户端。圆形封面、动态取色、逐字歌词与悬浮播放器，让音乐库、发现和播放自然衔接，适配竖屏、横屏与宽屏布局。
+流声音乐（CurrentMusicX）是 [CurrentMusic](https://github.com/backrooms-yrc/CurrentMusic) 的原生 Android 客户端。应用中文显示名为「流声音乐」，英文名仍为 CurrentMusic。圆形封面、动态取色、逐字歌词与悬浮播放器，让音乐库、发现和播放自然衔接，适配竖屏、横屏与宽屏布局。
 
 ## 界面预览
 
@@ -49,29 +51,29 @@ CurrentMusicX 是 [CurrentMusic](https://github.com/backrooms-yrc/CurrentMusic) 
 
 1. **下载安装。** 前往 [Releases](https://github.com/bileizhen/CurrentMusicX/releases/latest) 下载 `CurrentMusic-Android-v版本号.apk`，按系统提示安装。同签名正式版可覆盖升级。
 2. **选择来源。** 在「设置 → 音源与网络」分别选择音乐音源和歌词来源。歌词默认**自动择优：逐字优先，逐行兜底**。
-3. **连接音乐库。** 按需登录 CurrentMusic、绑定网易云，或在「设置 → 音源与网络 → 自建曲库」连接 Navidrome / Emby，即可搜索、收藏和播放。连接后的曲库入口会显示在「我的 → 音乐服务」，退出账号后隐藏。
+3. **连接音乐库。** 按需登录 CurrentMusic、绑定网易云，或点击左上角 **Current Music** 切换并扫码登录 QQ 音乐；也可在「设置 → 音源与网络 → 自建曲库」连接 Navidrome / Emby，即可搜索、收藏和播放。连接后的曲库入口会显示在「我的 → 音乐服务」，退出账号后隐藏。
 
 歌曲、音质、会员音效及推荐的可用性，以对应服务和账号权限为准。本页介绍当前 `main` 源码；已发布版本的变化与验收范围见 [GitHub Releases](https://github.com/bileizhen/CurrentMusicX/releases)。
 
-[功能一览](#功能一览) · [音源与歌词](#音源与歌词) · [兼容性](#兼容性) · [常见问题](#常见问题) · [构建与测试](#从源码构建与设备测试) · [参与贡献](#issuespr-与版本发布)
+[功能一览](#功能一览) · [音源与歌词](#音源与歌词) · [项目实现原理](#项目实现原理) · [兼容性](#兼容性) · [常见问题](#常见问题) · [构建与测试](#从源码构建与设备测试) · [参与贡献](#issuespr-与版本发布)
 
 ## 功能一览
 
 ### 随音乐展开的播放体验
 
-- **播放与控制**：后台、通知栏、锁屏和蓝牙控制；队列、循环、随机、心动模式、定时关闭、DLNA 投屏及 MV。
+- **播放与控制**：后台、通知栏、锁屏和蓝牙控制；队列、循环、随机、心动模式、定时关闭及 MV；长按迷你播放器可在当前歌单中定位正在播放的歌曲。
 - **歌词与动效**：六源自动匹配，逐字高亮、翻译与罗马音；莫奈动画、流烟、星尘与透视效果；单曲偏移、多格式导入及 FIA / LRC 导出。
-- **音效与衔接**：本机均衡器、原版标准及智能音效、AI 情绪调音师、AI 调音大师与外放场景；智能过渡或淡入淡出。
+- **流声音频系统与衔接**：在「设置 → 音效 → 流声音频系统」调节十段均衡器、动态 EQ、虚拟低频与马达驱动；另有原版标准及智能音效、AI 情绪调音师、AI 调音大师与外放场景，以及智能过渡或淡入淡出。
 - **下载与分享**：音质与目录选择、后台进度、取消与重试；写入音频标签、封面和歌词；生成海报、播放链接与二维码。
 - **音质档位**：Hi-Res（`hires`）、高清臻音（`jyeffect`）和臻音全景声（`vivid`）分别显示；可选较高及杜比全景声。所选档位是向音源请求的质量，不代表最终文件或设备输出已达到该质量，实际可用性取决于音源、歌曲与账号权限。
 
 ### 自己的音乐库，也能一起听
 
-- **音乐库**：网易云我喜欢与歌单管理、CurrentMusic 自建歌单、Navidrome / Emby 专辑与艺术家；支持收藏、搜索和原音质播放。
+- **音乐库**：网易云与 QQ 音乐双平台的每日推荐、我喜欢、歌单、搜索、专辑、歌手、分类歌单和听歌排行；支持在左上角切换平台，并复用同一套界面组件。还支持 CurrentMusic 自建歌单、Navidrome / Emby 专辑与艺术家；支持收藏、搜索和原音质播放。
 - **本地音乐**：进入「本地音乐 → 扫描范围 → 选择文件夹」，只扫描所选目录及子目录，记住所选位置；授权失效时提示重新选择。扫描全机音乐需要显式选择并授予音频权限，修改扫描范围不替换当前播放队列。
 - **发现音乐**：分类搜索、歌词搜歌、候选词、每日推荐、热搜与音乐风格；私人漫游支持默认、熟悉、探索、拼图及动态场景，结束后可恢复原队列。
-- **双人一起听**：网易云原生邀请与短链接、共享队列、同步切歌与断线恢复；一起听记录、排行、结束报告和缘分报告。
-- **账号与交流**：多账号、资料管理、密码修改与邮箱找回、听歌统计、公告、帖子、公共聊天和 AI 对话；可选网易云任务中心与前台自动签到，默认关闭。
+- **双人一起听**：网易云一起听邀请与短链接、共享队列、同步切歌与断线恢复；一起听记录、排行、结束报告和缘分报告。
+- **账号与交流**：多账号、账号等级与成长（含等级试炼）、资料管理、密码修改与邮箱找回，登录另支持邮箱验证码、安全问题与通行密钥（Android 9 及以上），并可管理验证器与安全问题保护；「我的 → 听歌时长」汇总本机与网易云双来源听歌足迹，提供周 / 月 / 年度报告和唱片墙导出；公告、帖子、公共聊天和 AI 对话；可选网易云任务中心与前台自动签到，默认关闭。
 
 ### 调成喜欢的样子
 
@@ -96,23 +98,24 @@ CurrentMusicX 是 [CurrentMusic](https://github.com/backrooms-yrc/CurrentMusic) 
 - 自动切歌的智能过渡与淡入淡出择一开启，默认关闭；淡入淡出可调 1–12 秒。允许与其他应用同时播放可单独设置。
 - 「播放器右上角菜单 → 播放背景」可从系统选择图片，预览并调整 0–100% 模糊度；图片仅保存在本机，重启保留，可恢复默认封面取色背景。
 - 「我的 → 网易云账号 → 网易云任务」开启后，“我的”页会在网易云账号下方显示任务入口。需要本机网易云登录；自动签到另行开启，仅在 App 前台进行日常与云贝签到。任务进度和奖励由网易云确认，听歌使用实际播放记录。
-- 歌词优先使用真实逐字时间，过滤服务端估算轴。卡拉 OK 兼容策略选「总是」时，可为普通逐行歌词生成近似高亮，属于本地显示效果。
-- 音效页面使用原生 Compose；已内置适配的 ARM64 引擎，无需另装网易云。会员权益由服务端核验，未接入的算法会明确提示；外放场景仅在当前运行期间保留。
-- 应用内不常驻显示歌词 / FPS 灵动岛，仅临时显示音效、下载与错误反馈；桌面悬浮歌词需系统授权，支持位置、字号、翻译和锁定。
+- 歌词优先使用真实逐字时间，过滤服务端估算轴。卡拉 OK 兼容策略选「总是」时，可为普通逐行歌词生成近似高亮，属于本地显示效果。「歌词页自动隐藏控制面板」默认关闭，开启后歌词页 3 秒无操作即隐藏控制区，点击底部按钮恢复。
+- 网易云音效为可选下载，完整包约 71.4 MB。引擎和界面素材安装后，音效页会显示网易云音效卡片。下载源跟随「检查更新」，音效包可在下载页移除。本机均衡器和智能调音可直接使用。会员权益由服务端核验，外放场景仅在当前运行期间保留。
+- 应用内不常驻显示歌词 / FPS 灵动岛，仅临时显示音效、下载与错误反馈；桌面悬浮歌词需系统授权，窗口始终锁定，支持在设置中调整高度、字号和翻译，并保留点击切换与左右滑动切歌。上滑时容器收缩为 80dp 深色细线，点击或下滑展开。
 
 </details>
 
 <details>
 <summary>音乐库、搜索与一起听说明</summary>
 
-- 网易云登录需先注册并登录 CurrentMusic 账号，再使用扫码或手机验证码。本机登录后仍直连网易云搜索、歌单、收藏、推荐与评论。没有本机登录时，部分服务可复用 CurrentMusic 账号的云端绑定，云端凭据不下载到本机。
-- 「网易云作为主音乐库」决定默认音乐库入口；「设置 → 播放 → 默认红心位置」独立控制收藏目标。Navidrome 歌曲使用自己的服务器收藏。
-- 歌单支持搜索、排序、创建与管理，可选 Depth Ribbon 立体缎带或 CD 唱片架浏览；唱片架支持搜索收拢、随机挑歌、高潮片段或整首试听、循环与自动下一首，取消喜欢后可在灵动岛撤销。CurrentMusic 自建歌单可导入网易云「我喜欢」。切换音乐库不会删除原有歌单。
+- CurrentMusic 账号支持密码、邮箱验证码、安全问题与通行密钥登录，通行密钥的服务器适配见 [README-ANDROID-PASSKEYS.md](README-ANDROID-PASSKEYS.md)。网易云登录需先注册并登录 CurrentMusic 账号，再使用扫码或手机验证码。本机登录后仍直连网易云搜索、歌单、收藏、推荐与评论。没有本机登录时，部分服务可复用 CurrentMusic 账号的云端绑定，云端凭据不下载到本机。
+- 「网易云作为主音乐库」只决定默认音乐库入口；红心始终写入歌曲所属平台（网易云或 QQ 音乐），不再提供站内收藏开关。Navidrome 歌曲使用自己的服务器收藏。
+- 歌单支持搜索、排序、创建与管理，歌单与「我喜欢」页可多选歌曲批量收藏或取消收藏，网易云他人歌单支持收藏订阅；可选 Depth Ribbon 立体缎带或 CD 唱片架浏览；唱片架支持搜索收拢、随机挑歌、高潮片段或整首试听、循环与自动下一首，取消喜欢后可在灵动岛撤销。CurrentMusic 自建歌单可导入网易云「我喜欢」。切换音乐库不会删除原有歌单。
 - 搜索首页支持收起历史、双列推荐词和可横滑的网易云搜索热榜（含 ACG、日语等分类）；输入片段显示候选词，点选直接搜索；「歌词」分类支持输入记得的歌词搜歌，并展示命中的歌词片段。
 - 搜索页「歌单」分类展示网易云歌单封面、创建者和歌曲数，支持分页与失败重试；点击沿用原有歌单详情，切换分类及返回后保留结果与滚动位置。
+- 在聊天或浏览器中点击网易云歌曲、歌单、专辑、歌手、MV、`163cn.tv` 短链接、一起听邀请或 CurrentMusic 站点 `/app/` 链接可在应用内打开：歌曲读取信息后播放并展开播放器，其余进入对应详情页，一起听邀请仅预填、确认后才加入。CurrentMusic 域名依赖站点应用关联验证，网易云域名需在系统「默认打开链接」中允许；未支持的路由显示提示。
 - 网易云一起听复用原有搜索与播放队列，支持双方口味推荐、移除、清空、整队列下载和收藏；推荐、历史、排行与报告受服务端权限限制。
 - 冷启动检查并恢复中断的网易云会话；启动时主动开始其他播放会取消本次自动恢复。结束会话后，确认远端结束才展示报告，可收藏歌曲并导出分享海报。
-- CurrentMusic 服务器房间另支持密码、点歌审批和成员权限。Navidrome / Emby 私有曲库当前仅在本机播放，不参与 CurrentMusic 房间或 DLNA 投屏。
+- CurrentMusic 服务器房间另支持密码、点歌审批和成员权限。Navidrome / Emby 私有曲库当前仅在本机播放，不参与 CurrentMusic 房间。
 
 </details>
 
@@ -124,14 +127,14 @@ CurrentMusicX 是 [CurrentMusic](https://github.com/backrooms-yrc/CurrentMusic) 
 
 | 音源 | 使用方式 |
 | --- | --- |
-| **CurrentMusic（默认）** | 通过配置的 CurrentMusic 服务器取流，需站内账号 |
-| 网易云原生 | 手机直连，使用本机网易云账号权限；不自动回退到服务器取流 |
+| **平台直连（默认）** | 随当前音乐平台由手机直接请求网易云或 QQ 音乐官方接口；QQ 音乐需先在左上角切换平台并扫码登录，不自动回退到 CurrentMusic 服务器取流 |
 | LeiZ API | 配置 API Key 后使用对应服务，密钥加密保存在本机 |
-| 落雪音源 | 从 `.js` 文件或链接导入脚本；目前仅解析带有效网易云 ID 的歌曲，搜索与歌单保持原有来源 |
+| 服务器音源 | 登录 CurrentMusic 后，在「设置 → 音源与网络 → 从服务器导入」选择音源并确认。流声引擎支持网易云曲库取链。 [接入文档](https://music.20110208.xyz/api-docs/reference/guide-audio-sources-api/) |
+| 落雪音源 | 从 `.js` 文件或链接导入脚本，可导入多个并开启「多音源智能切换」：优先使用取链更快的脚本，失败时自动尝试其他已导入音源；按当前平台解析带有效网易云或 QQ 音乐 ID 的歌曲，搜索与歌单保持原有来源 |
 
-落雪脚本会向其服务方发送歌曲信息，请仅导入可信来源。Navidrome 在「设置 → 音源与网络 → 自建曲库」连接，音频直接从自己的服务器播放。
+落雪脚本会向其服务方发送歌曲信息，请仅导入可信来源；智能切换的失败重试会向其他已导入脚本的服务方发送同样的歌曲信息。Navidrome 在「设置 → 音源与网络 → 自建曲库」连接，音频直接从自己的服务器播放。
 
-Emby 可从「设置 → 音源与网络 → 自建曲库 → Emby」连接，连接后在「我的 → 音乐服务」显示「Emby 曲库」。默认进入歌曲，底栏使用与主页相同的交互，切换歌曲、艺术家、歌单和我喜欢；专辑从艺术家页面进入。顶部搜索与刷新合为一组图标，搜索沿用歌单页的展开方式。填写服务器地址（支持反向代理子路径）、用户名与密码；登录后仅加密保存令牌，不保存密码。专辑、歌曲、艺术家、歌单及我喜欢均按 40 条分页读取，支持歌曲搜索、服务器收藏、队列播放、原音质缓存和预加载。歌单当前只读，下载遵循服务器账号权限；不提供转码、一起听、投屏或服务器播放记录上报。歌词沿用应用的自动匹配、手动匹配及本地导入，暂不读取 Emby 服务端歌词。
+Emby 可从「设置 → 音源与网络 → 自建曲库 → Emby」连接，连接后在「我的 → 音乐服务」显示「Emby 曲库」。默认进入歌曲，底栏使用与主页相同的交互，切换歌曲、艺术家、歌单和我喜欢；专辑从艺术家页面进入。顶部搜索与刷新合为一组图标，搜索沿用歌单页的展开方式。填写服务器地址（支持反向代理子路径）、用户名与密码；登录后仅加密保存令牌，不保存密码。专辑、歌曲、艺术家、歌单及我喜欢均按 40 条分页读取，支持歌曲搜索、服务器收藏、队列播放、原音质缓存和预加载。歌单当前只读，下载遵循服务器账号权限；不提供转码、一起听或服务器播放记录上报。歌词沿用应用的自动匹配、手动匹配及本地导入，暂不读取 Emby 服务端歌词。
 
 
 ### 歌词如何选择
@@ -140,7 +143,7 @@ Emby 可从「设置 → 音源与网络 → 自建曲库 → Emby」连接，�
 - **指定来源**：可选 CurrentMusic（含服务端 LDDC 数据）、手机直连网易云 YRC / LRC，或本地内嵌歌词。
 - **指定单曲**：在播放页「歌词管理」中搜索、预览、保存或导入；手动保存与导入的单曲歌词、本地内嵌歌词优先于自动选择。
 
-**希望歌曲和歌词都直连网易云？同时选择「网易云原生」音源和「网易云歌词」。** 本机网易云音乐库与原生双人一起听也独立直连网易云。
+**希望歌曲和歌词都直连网易云？使用「平台直连」音源并选择网易云平台，再把歌词来源选为「网易云歌词」。** 本机网易云音乐库与双人一起听也独立直连网易云。
 
 <details>
 <summary>歌词匹配、偏移与导入导出</summary>
@@ -158,16 +161,42 @@ Emby 可从「设置 → 音源与网络 → 自建曲库 → Emby」连接，�
 
 「设置 → 音源与网络 → CurrentMusic 服务器」提供固定顺序的自动、`music.20110208.xyz` 主站、`cm.bileizhen.top` CDN、`currentmusic.geekertao.com` CDN、`music.ctcehs.com` CDN 和自定义选项，并显示公告接口的响应延迟，不按延迟排序。新安装默认自动，启动时测速选择较快的可用预设线路，也可手动重新检测；已有服务器配置保留原选择。主站和 CDN 切换保留登录，自定义地址独立保存，切换到其他服务器需重新登录。完整接口路径为 `/cm/`。更新下载中的 CurrentMusic 专用源同步跟随自动或手动选择的内置 CDN，探测与后台下载使用同一路由，安装包继续按 GitHub 发布信息校验大小和 SHA-256。
 
-此地址用于站内账号、CurrentMusic 音源与歌词、云端绑定、个人资料、社区及服务器房间。网易云原生、LeiZ API、外部音频及歌词来源继续使用各自的地址；Navidrome 音频直接从自己的服务器播放。
+此地址用于站内账号、CurrentMusic 歌词、云端绑定、个人资料、社区及服务器房间。平台直连、LeiZ API、外部音频及歌词来源继续使用各自的地址；Navidrome 音频直接从自己的服务器播放。
 
 </details>
+
+## 项目实现原理
+
+[![CurrentMusic 实现原理图](.github/img/architecture.png)](.github/img/architecture.png)
+
+### 客户端怎样分流
+
+- **Web 流声屿**默认把搜索、歌曲详情、歌词、播放取址、账号和社区等业务 API 统一发往流声引擎的 `/cm/`。可选 LeiZ 音源会直接请求 LeiZ。云盘分步上传由引擎申请令牌和登记文件，中间的文件数据可直传对象存储。
+- **CurrentMusicX** 由客户端按功能、音源设置和登录态选择路径。平台直连音源由手机按当前平台直接取流；LeiZ API 与落雪音源使用各自的地址。启用已导入的服务器音源后，网易云曲库的取链请求发送到该 CurrentMusic 服务器。站内账号和歌单、社区、站内房间、云端绑定及 CurrentMusic 歌词走引擎。搜索、评论和双人一起听可直连网易云，已在手机登录网易云时，个人歌单、收藏和推荐通常也走直连。没有本机网易云会话时，部分账号功能可走引擎复用云端绑定。
+
+### 流声引擎怎样处理请求
+
+1. HTTPS 反向代理将 `/cm/` 转发给 Python 后端，并写入可信客户端 IP。后端按路由处理登录校验、限流和缓存。公开搜索、详情和歌词可供访客查询，媒体取址要求 CurrentMusic 登录。搜索和播放取址可将可信客户端 IP 传给上游，并据此隔离缓存。
+2. 站内账号、歌单、社区和房间由后端处理，会话和业务数据保存在 SQLite。聊天室和听歌房可用服务器发送事件（SSE）接收更新。需要访问网易云时，后端通过 `CM_NCM_BASE` 调用独立部署的 NCM API（Node.js / api-enhanced），由它向网易云发起协议请求并返回结果。
+3. 网易云个人操作走单独的鉴权路径。引擎校验 CurrentMusic 会话，再读取该用户绑定的网易云 Cookie 来访问其歌单、收藏等数据。X 端完成本机网易云登录后，可通过 `/cm/ncmbind/import` 将凭据同步给引擎，由服务端验证账号归属。引擎保存的 Cookie 只用于服务端请求。
+
+### 匿名 SVIP 怎样取址
+
+1. 用户登录 **CurrentMusic** 后，以站内令牌请求 `GET /cm/ncm/song/url`，提交歌曲 ID 和音质档位。这里的「匿名」指取址可以省略个人网易云绑定。
+2. 后端读取 `CM_NCM_COOKIE` 指向的文件，将服务器配置的网易云 SVIP Cookie 注入发往 NCM API 的官方取址请求 `/song/url/v1`。网易云按该服务端账号的权益、曲目限制和请求档位返回结果。站内令牌用于引擎鉴权，服务端 Cookie 用于上游鉴权。
+3. 引擎选择可用音质，探测最终官方地址的音频头。官方取址失败或只返回试听时，可经部署好的匹配器查找候选音源，并校验音频和时长。匹配请求使用公开歌曲资料，发往匹配器的请求不携带这两类网易云 Cookie。
+4. 后端返回播放地址和可验证的音频信息。常规播放时，Web 和 X 直接从返回的 CDN 或匹配音源地址读取音频。歌词走独立接口。引擎优先使用官方 YRC，缺少逐字数据时可由 LDDC 补全，最后回退到 LRC 并标记估算的逐字时间。X 可独立选择本机直连或自动多源匹配。
+
+部署记录还记载了一个独立的 `ncm-inject` 入口。它对符合注入规则且调用方未带 Cookie 的请求补上服务端 SVIP Cookie，再交给 NCM API。上图的 Web 与 X 默认请求链使用的是 `/cm/`。
+
+[X 端请求路由](app/src/main/java/io/github/currencortex/music/core/network/ApiClient.kt) · [引擎后端](https://github.com/backrooms-yrc/CurrentMusic/tree/main/backend) · [播放取址](https://github.com/backrooms-yrc/CurrentMusic/blob/main/docs/playback-sources.md) · [账号绑定](https://github.com/backrooms-yrc/CurrentMusic/blob/main/docs/third-party-ncm-sync.md) · [部署记录](https://github.com/backrooms-yrc/CurrentMusic/blob/main/docs/api-5-phase-plan.md#1-实测拓扑)
 
 ## 兼容性
 
 | 项目 | 要求 |
 | --- | --- |
 | 系统 | Android 8.0 / API 26 及以上；目标 Android 16 / API 36 |
-| 架构 | 正式安装包面向 ARM64（arm64-v8a），包含适配的原版音效引擎 |
+| 架构 | 正式安装包面向 ARM64（arm64-v8a）；网易云原版音效引擎改为按需下载 |
 | 布局 | 竖屏、横屏与宽屏导航 |
 | 动态颜色 | Monet 需要 Android 12 / API 31 及以上 |
 | 实时模糊 | Android 13 / API 33 及以上；低版本或关闭时使用普通材质 |
@@ -231,7 +260,7 @@ Linux / macOS 使用 `./gradlew` 执行相同任务。Debug APK 位于 `app/buil
 <details>
 <summary>Release 体积、Baseline Profile 与性能回归</summary>
 
-Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 APK；保留网易云原版音效、MNN 和对应 JNI 名称。可复现体积报告：`python scripts/apk_size_report.py app/build/outputs/apk/release/app-release.apk --json output/apk-size.json`。报告区分 ZIP 压缩大小、各 ABI 解压占用与 ELF 页对齐，不将体积变化当作运行速度改善。部分既有供应商原生库仍不满足 16 KiB 页要求。
+Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 APK；网易云原版音效引擎与 MNN 不随包内置，保留对应 JNI 声明并支持按需下载校验。可复现体积报告：`python scripts/apk_size_report.py app/build/outputs/apk/release/app-release.apk --json output/apk-size.json`。报告区分 ZIP 压缩大小、各 ABI 解压占用与 ELF 页对齐，不将体积变化当作运行速度改善。部分既有供应商原生库仍不满足 16 KiB 页要求。
 
 性能测试使用独立的 `com.bileizhen.currentmusic.benchmark` 应用，不访问用户账号或在线服务。`baselineprofile` 与 `benchmark` 模块覆盖冷启动、首页、播放器、播放、歌词、歌单、设置和输出模式；执行 `:app:generateBaselineProfile` 显式采集，再用 `:benchmark:connectedPerformanceAndroidTest` 比较 `compilation=none` 与 `compilation=baseline`。未实际生成 Profile 时，后者应失败，不把框架或依赖自带 Profile 视为本项目已完成采集。设备需支持 AndroidX Macrobenchmark（测试模块最低 Android 9，不改变正式应用 Android 8 的最低版本）。
 
@@ -241,7 +270,7 @@ Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 AP
 
 ## Issues、PR 与版本发布
 
-使用 [Issue 表单](https://github.com/bileizhen/CurrentMusicX/issues/new/choose)报告问题或提出建议；PR 按[仓库模板](.github/PULL_REQUEST_TEMPLATE.md)说明变化与验证。完整解决问题时用 `Fixes #编号`，仅关联讨论时用 `Refs #编号`。
+使用 [Issue 表单](https://github.com/bileizhen/CurrentMusicX/issues/new/choose)报告问题或提出建议；PR 按[仓库模板](.github/pull_request_template.md)说明变化与验证。完整解决问题时用 `Fixes #编号`，仅关联讨论时用 `Refs #编号`。
 
 开发流程：**独立功能分支 → PR → CI → 合并 `main`**。一个 PR 对应一个明确改动，功能分支使用 `bileizhen/` 前缀、推送到 `releases`，目标为 `bileizhen/CurrentMusicX:main`。保留原子提交，版本号等发布准备另开最后一个 PR。
 
@@ -252,8 +281,8 @@ Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 AP
 - 自动分流根据表单选择设置 `module: *` 标签，缺少必要信息时使用 `needs-info` 并更新同一条追问评论。自由格式问题保留人工判断，不使用 AI 猜测重复问题或自动关闭。仓库变量 `TRIAGE_MODE` 支持 `live`（默认）、`dry-run`、`off`。
 - 每天北京时间 03:00 检查过期条目。`STALE_MODE` 默认 `dry-run`，维护者检查 Actions 日志后可设为 `live`：缺信息 14 天、无活动 60 天标记 stale，再等待 30 天；每次最多关闭两个符合条件的 Bug／问题。功能建议、PR、已分配负责人、有里程碑、重开过的条目受保护；`bot: skip`、`needs follow-up` 等标签可豁免。关闭理由是暂不计划处理，不代表修复完成。作者回复会转为待跟进，普通讨论会解除 stale。
 - 开发使用独立功能分支 → PR → CI → 合并 `main`。PR 标题使用 `feat:`、`fix:`、`perf:`、`docs:`、`deps:` 或 `chore:` 等前缀，机器人映射到已有发布分类标签；维护者手工添加的标签不被自动撤销。一个 PR 对应一个明确改动，完整解决问题时用 `Fixes #编号`，仅关联讨论时用 `Refs #编号`，不为制造发布条目而创建空 PR。
-- 每个 PR 独立运行两个快速检查。`build` 用 Python 校验原生源码约束、随包法律文件及 APK 分析脚本，`test` 运行协作脚本测试和 actionlint。PR 检查不启动 Gradle，也不生成 APK。PR 元数据自动化仅使用默认分支的可信脚本。
-- 所有面向 `main` 的开放 PR 处理完毕后，Android CI 按累计改动决定是否打包。有应用改动时构建 Release APK，执行 Release 单元测试与 Lint，再交给签名发布流程。
+- PR 的 `build` 保留 Python 快速检查；非草稿且涉及应用改动时，`build` 执行 `:app:compileReleaseJavaWithJavac`（包含 Kotlin/KSP 依赖），完整 Android `:app:lintRelease` 则作为独立并行 `lint` 作业运行。`test` 继续检查协作脚本和 actionlint。纯文档/CI 类 PR 跳过 Gradle，草稿 PR 跳过耗时的 Android 检查。`build` 对本仓库内部 PR 允许写入 PR 专属 Gradle 缓存以加快后续同步构建；Fork PR 继续只读，独立 `lint` 作业始终只读以避免并发写入。`build` 的原有必需检查名称不变；新的 `lint` 仅在分支保护中配置为必需检查时才强制阻止合并，未配置时可能在 Lint 完成前合并，维护者需据此评估风险。PR 不生成发布 APK。
+- 所有面向 `main` 的开放 PR 处理完毕后，Android CI 按累计改动决定是否打包。有应用改动时编译 Release APK，校验并上传未签名产物，然后交给签名发布流程。完整 Android Lint 在非草稿 PR 的独立 `lint` 作业中执行（是否是合并门禁取决于分支保护设置），主线 CI 预发布包仍通过 `checkReleaseBuilds = false` 跳过隐式的 `lintVitalRelease`；正式版/本地 Release 构建保留这项致命问题检查。绕过 PR 直接推送代码到 main 时须另行运行 `:app:lintRelease`。主线工作流当前不单独运行单元测试。
 - 仓库允许对已审查的具体 PR 启用 Auto-merge，仅使用 Merge commit 保留原子提交。合并前需通过 `build` 和 `test`，并满足现有的分支同步与审查要求。
 - PR 合并后由 GitHub 自动删除远端功能分支，PR 记录和提交历史保留。本地分支及 worktree 不自动删除，清理前确认没有未提交或未合并的工作。
 - `Update PR branches` 在主线推进、PR 打开或更新时自动把 `main` 合入落后的非草稿 PR。仅处理无冲突且允许维护者更新的分支，使用精确 head SHA 防止并发覆盖；已同步的分支不重复更新，`bot: skip` 可退出自动处理。工作流只运行主线可信脚本，不检出 PR 代码、不强推、不代替审查或自动批准 CI。使用内置 `GITHUB_TOKEN` 更新后，GitHub 可能要求维护者批准新检查；fork 权限不足、冲突或分支保护阻止更新时会在日志提示，需人工处理。
@@ -267,7 +296,7 @@ Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 AP
 <details>
 <summary>版本草稿、签名附件与发布说明</summary>
 
-- 版本号单独提交并通过 PR 合并后，为验证过的主线提交打 `vX.Y.Z` tag。运行 **Prepare release draft**，填写本次 tag、上次正式版 tag 和中文摘要。流程验证版本号、提交祖先关系、已有 Release 和 main 的 Android CI，再使用 GitHub 原生 API 按 `.github/release.yml` 生成分类清单，保留 `by @作者 in #PR`、新贡献者与 `Full Changelog` 链接；Release 构建、单元测试和 Lint 通过后创建草稿。
+- 版本号单独提交并通过 PR 合并后，为验证过的主线提交打 `vX.Y.Z` tag。运行 **Prepare release draft**，填写本次 tag、上次正式版 tag 和中文摘要。流程验证版本号、提交祖先关系、已有 Release 和 main 的 Android CI，再使用 GitHub 原生 API 按 `.github/release.yml` 生成分类清单，保留 `by @作者 in #PR`、新贡献者与 `Full Changelog` 链接；主线 Android CI 的 Release 构建及产物核验通过后创建草稿；草稿流程不会单独重跑单元测试或 Lint。
 - 发布仍使用一个通用 APK，不按 ABI 分包。正式版草稿工作流仅验证 Release 构建，不发布未签名 APK；维护者上传同一提交的正式签名 APK 和 SHA-256 文件、补齐真实设备验收与下载验证后再发布正式版。CI 签名使用上述受保护 Environment，密钥不进入源码或构建产物。已有 Release 不会被覆盖，不自动发布正式版。
 - 发布头图上传为对应 Release 的附件，并在 Release notes 顶部嵌入，不提交到源码仓库。迁移旧头图时先核对附件完整性、更新发布说明中的图片链接，再移除仓库文件；应用图标和 README 功能截图不受影响。
 - 历史直接提交而无关联 PR 的变化如实补充到中文摘要，不伪造作者与 PR 编号。完整更新说明仅维护在 GitHub Releases，不新增本地 CHANGELOG。
@@ -282,8 +311,8 @@ Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 AP
 
 感谢 [CurrentMusic](https://github.com/backrooms-yrc/CurrentMusic)、[Folia](https://github.com/chthollyphile/folia-major)、[Miuix](https://github.com/compose-miuix-ui/miuix)、[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)、[AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)、[LeiFetch](https://github.com/bileizhen/LeiFetch)、[123PanX](https://github.com/bileizhen/123PanX)、[XBlocker](https://github.com/bileizhen/XBlocker)、[AMLL TTML DB](https://github.com/amll-dev/amll-ttml-db)、[LXGW WenKai](https://github.com/lxgw/LxgwWenKai)，以及 AndroidX、Media3、Coil、Jaudiotagger、ZXing 等开源项目。
 
-<details>
-<summary>浏览量</summary>
+
+## 浏览量
 
 <div align="center">
 
@@ -291,4 +320,14 @@ Release 启用 R8 与资源压缩，仍发布一个包含现有 ABI 的通用 AP
 
 </div>
 
-</details>
+## Star 历史
+
+<div align="center">
+<a href="https://www.star-history.com/?repos=bileizhen%2Fcurrentmusicx&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=bileizhen/currentmusicx&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=bileizhen/currentmusicx&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=bileizhen/currentmusicx&type=date&legend=bottom-right" />
+ </picture>
+</a>
+</div>

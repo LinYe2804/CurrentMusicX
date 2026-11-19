@@ -20,7 +20,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.currencortex.music.core.media.PlayerMode
 import io.github.currencortex.music.data.settings.*
 import io.github.currencortex.music.ui.component.LocalMusicPageActive
 import io.github.currencortex.music.ui.component.MusicIcons
@@ -47,12 +46,11 @@ import kotlin.math.roundToInt
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); vm.clearAdaptivePreview() }
     }
-    val bypass = output.mode.bypassProcessing || playback.mode == PlayerMode.CAST
+    val bypass = output.mode.bypassProcessing
     val live = settings.enabled && playback.playing && runtime.processing && !bypass
     val liveEq = live && settings.dynamicEq
     val status = when {
         !settings.enabled -> "已关闭 · 调节参数已保留"
-        playback.mode == PlayerMode.CAST -> "投屏由接收设备处理，本机设置暂不生效"
         output.mode.bypassProcessing -> "${output.mode.label} 已旁路音频处理和马达驱动"
         !playback.playing -> "已开启 · 播放后生效"
         else -> runtime.message
@@ -64,14 +62,14 @@ import kotlin.math.roundToInt
     }
     SettingsUiScope {
         SettingsScrollLayout(Modifier.fillMaxSize().testTag("adaptive_audio_screen"), topBar = {
-            SettingsTopBar("音频处理", onBack = { vm.clearAdaptivePreview(); onBack() })
+            SettingsTopBar("流声音频系统", onBack = { vm.clearAdaptivePreview(); onBack() })
         }) { topInset ->
             LazyColumn(Modifier.fillMaxSize().testTag("adaptive_audio_list"), contentPadding = musicScrollPadding(PaddingValues(
                 start = 16.dp, end = 16.dp, top = topInset, bottom = 24.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item("master") {
                     SettingsGroup {
-                        SettingsToggle("启用音频处理", settings.enabled, { value -> vm.editAdaptive { it.copy(enabled = value) } },
+                        SettingsToggle("启用流声音频系统", settings.enabled, { value -> vm.editAdaptive { it.copy(enabled = value) } },
                             Modifier.testTag("adaptive_enabled"))
                         Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.primary.copy(alpha = if (live) .08f else .03f))
                             .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
@@ -107,7 +105,6 @@ import kotlin.math.roundToInt
                                 onPreview = { vm.previewAdaptive(band(it)) }, onCancel = vm::clearAdaptivePreview,
                                 onSave = { vm.commitAdaptive(band(it)) })
                         }
-                        SettingsHint(if (liveEq) "圆点显示实时增益，手动微调始终单独保留。" else "拖动圆点调音，空白轨道可上下滚动。")
                     }
                 }
                 item("dynamic") {
@@ -143,7 +140,6 @@ import kotlin.math.roundToInt
                                 { listOf("舒缓", "标准", "灵敏", "快速", "极快")[it.roundToInt().coerceIn(0, 4)] }, controls,
                                 "adaptive_speed", steps = 3, onPreview = { value -> vm.previewAdaptive { it.copy(speed = value.roundToInt()) } },
                                 onCancel = vm::clearAdaptivePreview, onSave = { value -> vm.commitAdaptive { it.copy(speed = value.roundToInt()) } })
-                            SettingsHint("舒缓更稳定，快速更跟手；鼓点等瞬态会平滑过渡。")
                         }
                     }
                 }
@@ -155,7 +151,6 @@ import kotlin.math.roundToInt
                             AudioAdjustment("低频力度", settings.bassStrength.toFloat(), 0f..100f, { "${it.roundToInt()}%" },
                                 enabled, "adaptive_bass_strength", onPreview = { value -> vm.previewAdaptive { it.copy(bassStrength = value.roundToInt()) } },
                                 onCancel = vm::clearAdaptivePreview, onSave = { value -> vm.commitAdaptive { it.copy(bassStrength = value.roundToInt()) } })
-                            SettingsHint("从轻量开始，按扬声器的听感增加力度。")
                         }
                     }
                 }
